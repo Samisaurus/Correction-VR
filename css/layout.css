@@ -1,19 +1,19 @@
-/* css/layout.css — the five-row page grid and the box skin (Claude · C1).
+/* css/layout.css — the page grid, the box skin, text formatting and motion (Claude · C1).
    Only this file positions the slots.
-   Desktop >= 1100 px: header | slider | map (7/12, 560 px) + fig1/fig2 stacked (5/12) |
-   infobox (5/12) + fig3 (7/12) | methods (760 px article column, centred).
-   900–1099 px: map full width, fig1 + fig2 side by side.  < 900 px: one column in the order
-   header, slider, map, infobox, fig1, fig2, fig3, methods.
+   Desktop >= 1100 px: header | slider | map (7/12, 560 px) + fig1/fig2 stacked (5/12) | infobox (5/12) + fig3 (7/12).
+   900–1099 px: map full width, fig1 + fig2 side by side, infobox and fig3 each on a full row.
+   < 900 px: one column in the order header, slider, map, infobox, fig1, fig2, fig3.
 
-   Box skin: every box is a rounded, thick-framed sheet of warm paper with faint basketball line art behind its
-   content (css/court-art.svg). The data windows (map, fig1, fig2, fig3, infobox) get a pastel frame that follows the
-   selected country (green Canada, red USA, blue Russia) and turns one shade darker in the case-study view. The year
-   slider keeps the neutral frame. Colours live in css/tokens.css; main.js sets data-country / data-view on <html>. */
+   Box skin: every box is a plain white, rounded, thick-framed window. The flowing line art sits on the page background
+   behind the windows (css/tokens.css, body::before), never inside them. The data windows (map, fig1, fig2, fig3, infobox)
+   get a pastel frame that follows the selected country (green Canada, red USA, blue Russia) and turns one shade darker in
+   the case-study view; the year slider keeps the neutral frame. Colours live in css/tokens.css; main.js sets
+   data-country / data-view on <html>. */
 
 .page {
   max-width: 1440px;
   margin: 0 auto;
-  padding: 0 16px 56px;
+  padding: 0 16px 48px;
   display: grid;
   gap: 16px;
   align-items: stretch;
@@ -23,8 +23,7 @@
     "slider slider slider slider slider slider slider slider slider slider slider slider"
     "map    map    map    map    map    map    map    fig1   fig1   fig1   fig1   fig1"
     "map    map    map    map    map    map    map    fig2   fig2   fig2   fig2   fig2"
-    "infobox infobox infobox infobox infobox fig3 fig3 fig3 fig3 fig3 fig3 fig3"
-    "methods methods methods methods methods methods methods methods methods methods methods methods";
+    "infobox infobox infobox infobox infobox fig3 fig3 fig3 fig3 fig3 fig3 fig3";
 }
 
 /* ---- frame colour of the data windows ---------------------------------------------------------------------- */
@@ -49,11 +48,8 @@ html[data-view="basin"] { --frame-now: var(--frame-deep); }
   overflow: hidden;             /* nothing protrudes past the rounded frame */
   border: var(--bw) solid var(--c-edge);
   border-radius: var(--r-box);
-  background-color: var(--c-sheet);
-  background-image: url("./court-art.svg");
-  background-size: 480px 480px;
-  background-position: center;
-  transition: border-color 0.25s ease;
+  background: var(--c-sheet);
+  transition: border-color var(--t-slow) var(--ease);
 }
 
 #map, #fig1, #fig2, #fig3, #infobox { border-color: var(--frame-now); }
@@ -64,10 +60,9 @@ html[data-view="basin"] { --frame-now: var(--frame-deep); }
   grid-area: header;
   overflow: visible;
   border: 0;
-  border-bottom: 1px solid var(--c-rule);
   border-radius: 0;
   background: none;
-  padding: 14px 0 12px;
+  padding: 18px 0 8px;
 }
 #site-header .hdr-root { align-items: center; }
 #site-header .hdr-controls { align-items: center; gap: 6px 14px; }   /* equal space either side of the divider */
@@ -78,43 +73,89 @@ html[data-view="basin"] { --frame-now: var(--frame-deep); }
 #fig2 { grid-area: fig2; min-height: 272px; }
 #infobox { grid-area: infobox; }
 #fig3 { grid-area: fig3; min-height: 260px; display: flex; flex-direction: column; justify-content: center; }
-#methods {
-  grid-area: methods;
-  overflow: visible;
-  border: 0;
-  border-radius: 0;
-  background: none;
-  max-width: 760px;
-  width: 100%;
-  margin: 16px auto 0;
-  padding: 0 0 24px;
-}
 
-/* ---- year slider: play button, year and rail share one centre line, thumb matches the 8 px rail inset ---------- */
+/* ---- header: bolder title, tabs with a sliding underline ------------------------------------------------------- */
+
+#site-header .hdr-brand h1 { font-size: 34px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; }
+#site-header .hdr-sub { margin-top: 5px; font-size: 14.5px; font-weight: 500; color: var(--c-muted); }
+#site-header .hdr-toggle { border-left: 2px solid var(--c-edge); }
+#site-header .hdr-btn {
+  position: relative;
+  font-size: 16px;
+  font-weight: 600;
+  border-bottom-color: transparent;
+  transition: color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease), transform 0.12s var(--ease);
+}
+#site-header .hdr-btn:hover { background: rgba(32, 33, 34, 0.05); border-radius: 8px 8px 0 0; }
+#site-header .hdr-btn::after {
+  content: "";
+  position: absolute;
+  left: 10px; right: 10px; bottom: -2px;
+  height: 3px;
+  border-radius: 3px;
+  background: var(--c-ink);
+  transform: scaleX(0);
+  transform-origin: center;
+  transition: transform var(--t-med) var(--ease);
+}
+#site-header .hdr-btn[aria-pressed="true"] { font-weight: 700; border-bottom-color: transparent; }
+#site-header .hdr-btn[aria-pressed="true"]::after { transform: scaleX(1); }
+#site-header .hdr-btn--basin::after { background: var(--c-basin); }
+
+/* ---- year slider: one centre line, bolder year, smooth fill and thumb ------------------------------------------ */
 
 #year-slider .sld-root { align-items: flex-start; }
-#year-slider .sld-year { height: 32px; display: flex; align-items: center; }
-#year-slider .sld-input::-webkit-slider-thumb { box-sizing: border-box; width: 16px; height: 16px; }
-#year-slider .sld-input::-moz-range-thumb { box-sizing: border-box; width: 16px; height: 16px; }
+#year-slider .sld-year { height: 32px; display: flex; align-items: center; font-size: 26px; font-weight: 700; letter-spacing: -0.01em; }
+#year-slider .sld-play { transition: background-color var(--t-fast) var(--ease), transform 0.14s var(--ease), border-color var(--t-fast) var(--ease); }
+#year-slider .sld-play:hover { transform: scale(1.08); border-color: var(--c-ink); }
+#year-slider .sld-play:active { transform: scale(0.92); }
+#year-slider .sld-fill { transition: width var(--t-med) var(--ease); }
+#year-slider .sld-label { font-weight: 500; transition: color var(--t-fast) var(--ease); }
+#year-slider .sld-label.is-selected { font-weight: 700; }
+#year-slider .sld-input::-webkit-slider-thumb { box-sizing: border-box; width: 16px; height: 16px; transition: transform 0.15s var(--ease); }
+#year-slider .sld-input::-moz-range-thumb { box-sizing: border-box; width: 16px; height: 16px; transition: transform 0.15s var(--ease); }
+#year-slider .sld-input:hover::-webkit-slider-thumb { transform: scale(1.2); }
+#year-slider .sld-input:hover::-moz-range-thumb { transform: scale(1.2); }
+#year-slider .sld-input:active::-webkit-slider-thumb { transform: scale(0.95); }
+#year-slider .sld-input:active::-moz-range-thumb { transform: scale(0.95); }
 
-/* ---- figures: comfortable inner padding so nothing touches the rounded corners -------------------------------- */
+/* ---- figures: padding that keeps clear of the rounded corners, bolder titles and stats ------------------------- */
 
 #fig1 .f1-root, #fig2 .f2-root, #fig3 .f3-root { padding: 16px 20px 14px; }
+#fig1 .f1-title, #fig2 .f2-title, #fig3 .f3-title { font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
 #fig1 .f1-plot, #fig2 .f2-plot { min-height: 248px; }
 #fig1 .f1-seg { border-radius: 8px; }
-#fig2 .f2-chip { border-radius: 8px; }
+#fig1 .f1-seg button, #fig2 .f2-chip { font-weight: 600; }
+#fig1 .f1-seg button { transition: background-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease); }
+#fig1 .f1-seg button:active { transform: none; background-color: var(--c-panel); }
+#fig2 .f2-chip { border-radius: 8px; transition: background-color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease), transform 0.12s var(--ease); }
+#fig1 .f1-stats, #fig2 .f2-stats { font-weight: 500; }
+#fig2 .f2-verdict { font-weight: 700; }
+#fig1 .f1-cap, #fig2 .f2-cap, #fig3 .f3-cap { color: #43484D; }
+#fig3 .f3-text { font-size: 14.5px; font-weight: 500; line-height: 1.6; }
+#fig3 .f3-name { font-weight: 700; }
+#fig3 .f3-node circle { transition: stroke-width var(--t-med) var(--ease); }
 
-/* ---- infobox: the slot carries the frame, so the inner box drops its own border ------------------------------ */
+/* ---- infobox: the slot carries the frame, so the inner box drops its own border -------------------------------- */
 
-#infobox .ibx-box { border: 0; border-radius: 0; background: transparent; }
-#infobox .ibx-caption { padding: 14px 20px 10px; border-bottom: 2px solid var(--c-edge); }
-#infobox .ibx-badge { right: 18px; top: 14px; border-radius: 6px; }
+#infobox .ibx-box { border: 0; border-radius: 0; background: transparent; animation: fade-in var(--t-slow) var(--ease) both; }
+#infobox .ibx-caption { padding: 16px 20px 12px; border-bottom: 2px solid var(--c-edge); }
+#infobox .ibx-name { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
+#infobox .ibx-sub { font-size: 12.5px; font-weight: 500; }
+#infobox .ibx-badge { right: 18px; top: 16px; border-radius: 6px; font-weight: 600; }
+#infobox .ibx-row th { padding-left: 16px; font-weight: 600; transition: background-color var(--t-fast) var(--ease), border-left-color var(--t-med) var(--ease); }
+#infobox .ibx-row td { transition: background-color var(--t-fast) var(--ease); }
 #infobox .ibx-row th, #infobox .ibx-row td { border-bottom-color: var(--c-edge); }
-#infobox .ibx-row th { padding-left: 16px; }
+#infobox .ibx-row[role="button"]:hover th, #infobox .ibx-row[role="button"]:hover td { background: var(--c-panel); }
+#infobox .ibx-row[role="button"]:active th, #infobox .ibx-row[role="button"]:active td { background: #EAEEF4; transition-duration: 0.06s; }
+#infobox .ibx-sublabel { font-weight: 500; }
+#infobox .ibx-num { font-size: 16.5px; font-weight: 600; }
+#infobox .ibx-unit { font-weight: 500; }
+#infobox .ibx-delta { font-weight: 500; }
 #infobox .ibx-value { white-space: normal; overflow-wrap: break-word; }   /* long units wrap instead of running into the sparkline */
 #infobox .ibx-num { white-space: nowrap; }
 #infobox .ibx-spark { width: 96px; padding-right: 18px; }                /* wide enough for the 72 px sparkline */
-#infobox .ibx-foot { padding: 10px 20px 12px; border-top: 2px solid var(--c-edge); }
+#infobox .ibx-foot { padding: 10px 20px 12px; border-top: 2px solid var(--c-edge); font-weight: 500; }
 
 /* ---- map overlays ---------------------------------------------------------------------------------------------- */
 
@@ -127,17 +168,26 @@ html[data-view="basin"] { --frame-now: var(--frame-deep); }
   max-width: calc(100% - 28px);
 }
 #map-legend .leg-box { border-radius: 10px; overflow: hidden; }
-#map .map-back { border-radius: 10px; top: 14px; left: 14px; }
+#map-legend .leg-title { font-weight: 600; transition: background-color var(--t-fast) var(--ease); }
+#map-legend .leg-title:hover { background: var(--c-panel); }
+#map .map-back { border-radius: 10px; top: 14px; left: 14px; font-weight: 600; }
 #map .map-note { border-radius: 10px; top: 14px; }
 #map .maplibregl-ctrl-group { border-radius: 10px; overflow: hidden; }
+#map .maplibregl-ctrl button { transition: background-color var(--t-fast) var(--ease); }
 #map .maplibregl-popup-content { border-radius: 8px; }
 
-/* ---- methods article: nothing wider than the column ------------------------------------------------------------ */
+/* ---- motion: windows glide in once, everything else is a quick, soft ease ---------------------------------------- */
 
-#methods img, #methods svg { max-width: 100%; height: auto; }
-#methods table { display: block; max-width: 100%; overflow-x: auto; }
-#methods pre { max-width: 100%; overflow-x: auto; }
-#methods p, #methods li { overflow-wrap: break-word; }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes rise-in { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+
+.page > * { animation: rise-in var(--t-slow) var(--ease) both; }
+.page > :nth-child(2) { animation-delay: 0.05s; }
+.page > :nth-child(3) { animation-delay: 0.10s; }
+.page > :nth-child(4) { animation-delay: 0.15s; }
+.page > :nth-child(5) { animation-delay: 0.20s; }
+.page > :nth-child(6) { animation-delay: 0.25s; }
+.page > :nth-child(7) { animation-delay: 0.30s; }
 
 /* ---- breakpoints ----------------------------------------------------------------------------------------------- */
 
@@ -149,8 +199,7 @@ html[data-view="basin"] { --frame-now: var(--frame-deep); }
       "map    map    map    map    map    map    map    map    map    map    map    map"
       "fig1   fig1   fig1   fig1   fig1   fig1   fig2   fig2   fig2   fig2   fig2   fig2"
       "infobox infobox infobox infobox infobox infobox infobox infobox infobox infobox infobox infobox"
-      "fig3   fig3   fig3   fig3   fig3   fig3   fig3   fig3   fig3   fig3   fig3   fig3"
-      "methods methods methods methods methods methods methods methods methods methods methods methods";
+      "fig3   fig3   fig3   fig3   fig3   fig3   fig3   fig3   fig3   fig3   fig3   fig3";
   }
   #map { min-height: 480px; }
 }
@@ -159,7 +208,7 @@ html[data-view="basin"] { --frame-now: var(--frame-deep); }
   :root { --bw: 3px; --r-box: 14px; }
   .page {
     gap: 12px;
-    padding: 0 12px 40px;
+    padding: 0 12px 32px;
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
       "header"
@@ -168,15 +217,19 @@ html[data-view="basin"] { --frame-now: var(--frame-deep); }
       "infobox"
       "fig1"
       "fig2"
-      "fig3"
-      "methods";
+      "fig3";
   }
+  #site-header .hdr-brand h1 { font-size: 27px; }
+  #site-header .hdr-toggle { border-left: 0; }
+  #site-header .hdr-btn { font-size: 15px; }
   #map { min-height: 420px; }
   #year-slider { padding: 10px 16px 10px; }
+  #year-slider .sld-year { font-size: 22px; }
   #map-legend { left: 10px; bottom: 66px; }   /* attribution wraps to two lines on phones */
   #fig1 .f1-root, #fig2 .f2-root, #fig3 .f3-root { padding: 14px 14px 12px; }
-  #infobox .ibx-caption { padding: 12px 14px 8px; }
-  #infobox .ibx-badge { right: 12px; top: 12px; }
+  #infobox .ibx-caption { padding: 14px 14px 10px; }
+  #infobox .ibx-name { font-size: 20px; }
+  #infobox .ibx-badge { right: 12px; top: 14px; }
   #infobox .ibx-foot { padding: 8px 14px 10px; }
 }
 

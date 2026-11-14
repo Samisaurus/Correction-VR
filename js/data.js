@@ -1,12 +1,11 @@
 // js/data.js
-// Purpose: cached loader for everything under ./data/ and ./content/ plus sync series helpers
+// Purpose: cached loader for everything under ./data/ plus sync series helpers
 //          (Session Primer v2, DATA API and SCOPE META). Never throws: a missing file is null.
-// Exports: getRegions, scopePath, getScope, getFires, getAir, getMethodsHtml,
+// Exports: getRegions, scopePath, getScope, getFires, getAir,
 //          annualSeries, monthlySeries, annualValue, isWaterVar, regionsCached, buildMeta
 // Owner: Claude · Task C2
 
 const BASE = './data/';
-const CONTENT = './content/';
 const cache = new Map(); // url or key -> Promise
 let regionsSync = null; // last parsed regions.json, for the sync scopePath()
 
@@ -20,25 +19,6 @@ async function fetchJson(url) {
           return null;
         }
         return await res.json();
-      } catch (err) {
-        console.warn(`data: ${url} failed (${err && err.message ? err.message : err})`);
-        return null;
-      }
-    })());
-  }
-  return cache.get(url);
-}
-
-async function fetchText(url) {
-  if (!cache.has(url)) {
-    cache.set(url, (async () => {
-      try {
-        const res = await fetch(url);
-        if (!res.ok) {
-          console.warn(`data: ${url} -> HTTP ${res.status}`);
-          return null;
-        }
-        return await res.text();
       } catch (err) {
         console.warn(`data: ${url} failed (${err && err.message ? err.message : err})`);
         return null;
@@ -128,11 +108,6 @@ export function getFires(state, year) {
 /** GeoJSON FeatureCollection of air cells for that year in the current scope, or null. */
 export function getAir(state, year) {
   return yearFile(state, 'air', year);
-}
-
-/** content/methods.html as a string, or null. */
-export function getMethodsHtml() {
-  return fetchText(`${CONTENT}methods.html`);
 }
 
 /** true for the water variables, which live under series.waterBodies. */

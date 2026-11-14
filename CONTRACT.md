@@ -57,14 +57,13 @@ js/ui/header.js [GPT G1]   js/ui/slider.js [GPT G2]   js/ui/infobox.js [GPT G3]
 js/charts/fig1-trend.js [GPT G4]   js/charts/fig2-before-after.js [GPT G5]
 js/charts/fig3-chain.js [Claude C9]
 js/map/map.js [C4] js/map/fires.js [C5] js/map/water.js [C6] js/map/air.js [C7] js/map/legend.js [C8]
-content/methods.html [GPT G6]
 data/** [mock: Claude C3, tools/make_mock.py; real: GPT P7]
 contract/schemas/*.schema.json, CONTRACT.md [Claude C0]
 pipeline/*.py, pipeline/README.md, pipeline/requirements.txt [GPT P0-P7]
 pipeline/raw/** [humans, gitignored]   pipeline/processed/** [pipeline output, gitignored]
 
 DOM IDS (index.html provides every slot except #region-tabs and #view-toggle)
-#site-header #year-slider #map #map-legend #fig1 #fig2 #infobox #fig3 #methods
+#site-header #year-slider #map #map-legend #fig1 #fig2 #infobox #fig3
 #region-tabs and #view-toggle are created by header.js inside #site-header.
 #map-legend sits inside the map frame.
 
@@ -101,7 +100,6 @@ DATA API (js/data.js): async, cached, returns null for a missing file (never thr
   getScope(state)           -> { meta, geo, rivers, series, stats }   for the current scope
   getFires(state, year)     -> GeoJSON FeatureCollection | null      for the current scope
   getAir(state, year)       -> GeoJSON FeatureCollection | null      for the current scope
-  getMethodsHtml()          -> string | null   (content/methods.html)
   Sync helpers (exported from data.js):
   annualSeries(series, varId, waterBodyId?)   -> [{ year, value }]      value may be null
   monthlySeries(series, varId, waterBodyId?) -> [{ date: Date, month: 'YYYY-MM', value }]
@@ -158,7 +156,6 @@ MODULE SIGNATURES
                      payload = { scope, fires, air }   (scope = getScope() result)
                      Own sources/layers only, ids prefixed 'fires-', 'water-', 'air-'.
   legend.js:         export function mount(el, ctx)
-  methods:           content/methods.html is an HTML fragment; main.js inserts it into #methods.
 
 DATA FILES
   data/regions.json
@@ -200,7 +197,7 @@ DATA FILES
   Country eventYears and amur eventYears are recomputed by the pipeline (common.event_years:
   the two years with the highest annual fire_frp);
   the values above are mock placeholders. Fraser and yukon eventYears are fixed.
-  Russia's bbox stops at 180 E (the Chukotka tip east of 180 is left out; noted in Methods).
+  Russia's bbox stops at 180 E (the Chukotka tip east of 180 is left out).
   Country scopes have primaryWaterBody null and waterBodies [].
 
   Files inside EVERY scope folder (data/<country>/ and data/<country>/<basin>/):
@@ -258,8 +255,8 @@ SCREEN LAYOUT (desktop >= 1100 px, from the team sketch)
   Row 3 #map            left, 7/12 width, 560 px tall, #map-legend overlaid bottom-left
          right column: #fig1 trend chart on top, #fig2 before/after bars below (as in the sketch)
   Row 4 #infobox        left 5/12   |   #fig3 chain diagram right 7/12
-  Row 5 #methods        article column, max-width 760 px, centred
-  Below 900 px: one column in the order header, slider, map, infobox, fig1, fig2, fig3, methods.
+  Nothing sits below row 4 (the Methods article was removed).
+  Below 900 px: one column in the order header, slider, map, infobox, fig1, fig2, fig3.
 
 MOCK DATA
   While regions.json has "mock": true, infobox.js shows a "MOCK DATA" badge. Never submit with mock data.

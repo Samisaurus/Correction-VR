@@ -19,7 +19,7 @@ Header (country tabs, *Whole country / Case study* toggle) · year slider with p
 map (globe with 0.5° fire cells, smoke haze, rivers that turn purple near fires, clickable orange case-study
 outline; basin view with 2.5D terrain, contours, 0.1° fires and the water measurement box) · infobox with
 sparklines · Fig. 1 trend (Mann-Kendall + Sen slope) · Fig. 2 before/after a fire year (Welch, Mann-Whitney,
-Cohen's d) · Fig. 3 the chain (Spearman lag links) · Methods / Data / Statistics / Caveats / Team / Credits.
+Cohen's d) · Fig. 3 the chain (Spearman lag links). Nothing sits below the windows.
 
 ## Modular by design: adding data later
 
@@ -44,7 +44,6 @@ js/store.js  js/data.js  js/theme.js                        state store, cached 
 js/ui/header.js  slider.js  infobox.js                      header tabs + toggle, year slider, infobox
 js/charts/fig1-trend.js  fig2-before-after.js  fig3-chain.js figures (Plot, Plot, hand-built SVG)
 js/map/map.js  fires.js  water.js  air.js  legend.js         MapLibre map and its layers
-content/methods.html                                        Methods article (HTML fragment)
 data/regions.json  data/<country>/[<basin>/]{geo,rivers}.geojson series.json stats.json fires/<y> air/<y>
 contract/  CONTRACT.md                                      the primer + JSON schemas + examples
 pipeline/                                                   Python pipeline P0–P7 (see pipeline/README.md)

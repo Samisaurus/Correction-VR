@@ -127,7 +127,7 @@ export async function mount(el, ctx) {
       ? annual.map((d) => ({ date: d.date, value: ta.sen_intercept + ta.sen_slope * (d.year - y0) }))
       : [];
     const width = Math.max(260, plotBox.clientWidth || el.clientWidth - 40 || 420);
-    const step = width < 520 ? 2 : 1;
+    const step = width < 640 ? 2 : 1;
     const ticks = [];
     for (let y = y0; y <= y1; y += step) ticks.push(DAY(y));
     const events = (meta.eventYears || []).map((y) => ({ date: DAY(y, 6, 1), year: y }));

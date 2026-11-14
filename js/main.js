@@ -1,7 +1,7 @@
 // js/main.js
 // Purpose: app entry. Builds ctx = { store, data, theme }, mounts every module into its slot with a
 //          safe dynamic import (a missing or broken module shows "Module not ready" and never breaks
-//          the page), and inserts content/methods.html into #methods.
+//          the page).
 // Exports: ctx, MODULES, main (also run on load)
 // Owner: Claude · Task C1 (skeleton) / C10 (final)
 
@@ -11,7 +11,7 @@ import * as theme from './theme.js';
 
 export const ctx = { store, data, theme };
 
-/** Mount order from the primer: header, slider, map, legend, infobox, fig1, fig2, fig3, methods. */
+/** Mount order from the primer: header, slider, map, legend, infobox, fig1, fig2, fig3. */
 export const MODULES = [
   { id: 'site-header', path: './ui/header.js' },
   { id: 'year-slider', path: './ui/slider.js' },
@@ -44,17 +44,6 @@ async function mountModule(entry, modulePromise) {
   }
 }
 
-async function mountMethods() {
-  const el = document.getElementById('methods');
-  if (!el) return;
-  const html = await data.getMethodsHtml();
-  if (html && html.trim()) {
-    el.innerHTML = html;
-  } else {
-    notReady('methods', 'content/methods.html', 'file missing or empty');
-  }
-}
-
 /** Mirror countryId and view onto <html> so css/layout.css can colour the data windows' frames. */
 function syncFrame(state) {
   const root = document.documentElement;
@@ -72,7 +61,6 @@ export async function main() {
 
   // Start every import at once, then mount in the primer order.
   const imports = MODULES.map((m) => import(m.path).catch((err) => ({ importError: err })));
-  const methods = mountMethods();
   for (let i = 0; i < MODULES.length; i += 1) {
     const entry = MODULES[i];
     const mod = await imports[i];
@@ -82,7 +70,6 @@ export async function main() {
     }
     await mountModule(entry, Promise.resolve(mod));
   }
-  await methods;
   document.documentElement.dataset.ready = 'true';
 }
 
