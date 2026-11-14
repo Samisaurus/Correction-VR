@@ -130,7 +130,7 @@ export async function mount(el, ctx) {
     const width = Math.max(260, plotBox.clientWidth || el.clientWidth - 24 || 420);
     const color = (d) => (d.side === 'after' ? v.color : COLORS.muted);
     const svg = Plot.plot({
-      width, height: 230, marginLeft: 52, marginRight: 14, marginTop: 10, marginBottom: 28,
+      width, height: 230, marginLeft: 52, marginRight: 14, marginTop: 28, marginBottom: 28,
       style: { fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: '11px', color: COLORS.muted, background: 'transparent', overflow: 'visible' },
       x: { domain: [0, 2], ticks: [0.5, 1.5], tickFormat: (d) => (d < 1 ? beforeLabel : afterLabel), label: null },
       y: { label: `${v.short} (${unit})`, labelAnchor: 'top', nice: true, zero: true },

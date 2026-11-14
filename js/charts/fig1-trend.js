@@ -149,7 +149,7 @@ export async function mount(el, ctx) {
         title: (d) => `Major fire year ${d.year}` }) : null,
     ].filter(Boolean);
     const svg = Plot.plot({
-      width, height: 230, marginLeft: 52, marginRight: 14, marginTop: 10, marginBottom: 28,
+      width, height: 230, marginLeft: 52, marginRight: 14, marginTop: 28, marginBottom: 28,
       style: { fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: '11px', color: COLORS.muted, background: 'transparent', overflow: 'visible' },
       x: { domain: [DAY(y0), DAY(y1 + 1)], ticks, tickFormat: '%Y', label: null },
       y: { label: `${v.short} (${unit})`, labelAnchor: 'top', nice: true, zero: !isWater },

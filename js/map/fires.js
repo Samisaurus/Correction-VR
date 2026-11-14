@@ -10,7 +10,7 @@ function radius(k) {
   // sqrt(count) scaled by zoom so 0.5° country cells and 0.1° basin cells both read well
   const s = ['sqrt', ['max', 1, ['get', 'count']]];
   const at = (f) => ['+', 1, ['*', f * k, s]];
-  return ['interpolate', ['linear'], ['zoom'], 1, at(0.22), 3, at(0.4), 6, at(0.75), 9, at(1.3)];
+  return ['interpolate', ['linear'], ['zoom'], 1, at(0.16), 3, at(0.3), 6, at(0.7), 9, at(1.3)];
 }
 
 export function addLayer(map, ctx) {
@@ -18,7 +18,7 @@ export function addLayer(map, ctx) {
   const { fmt } = ctx.theme;
   map.addSource('fires-src', { type: 'geojson', data: EMPTY, attribution: 'Fires: NASA FIRMS VIIRS' });
   map.addLayer({ id: 'fires-glow', type: 'circle', source: 'fires-src',
-    paint: { 'circle-color': COLORS.fire, 'circle-blur': 1, 'circle-opacity': 0.22, 'circle-radius': radius(2.4) } });
+    paint: { 'circle-color': COLORS.fire, 'circle-blur': 1, 'circle-opacity': 0.1, 'circle-radius': radius(1.7) } });
   map.addLayer({ id: 'fires-dot', type: 'circle', source: 'fires-src',
     paint: { 'circle-color': COLORS.fire, 'circle-radius': radius(1), 'circle-opacity': 0.75, 'circle-stroke-width': 0 } });
 
@@ -45,7 +45,7 @@ export function addLayer(map, ctx) {
       let max = 0;
       for (const f of fires.features) max = Math.max(max, Number(f.properties && f.properties.frp_sum) || 0);
       map.setPaintProperty('fires-dot', 'circle-opacity', max > 0
-        ? ['interpolate', ['linear'], ['get', 'frp_sum'], 0, 0.3, max, 0.95]
+        ? ['interpolate', ['linear'], ['get', 'frp_sum'], 0, 0.25, max, 0.85]
         : 0.6);
       popup.remove();
     },

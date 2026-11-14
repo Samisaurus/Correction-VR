@@ -166,6 +166,7 @@ export async function mount(el, ctx) {
     map.on('mouseleave', 'map-basin-fill', () => { map.getCanvas().style.cursor = ''; });
     ready = true;
     el.dataset.mapReady = 'true';
+    map.resize();
     refresh(store.get(), 'first');
   });
 
