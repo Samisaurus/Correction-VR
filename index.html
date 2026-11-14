@@ -4,42 +4,58 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Ember to Ocean</title>
-  <meta name="description" content="Ember to Ocean: a laboratory notebook tracing wildfire, air and water data across Canada, the United States and Russia.">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M12 3h8M13 3v9L5 26a2 2 0 0 0 2 3h18a2 2 0 0 0 2-3L19 12V3' fill='%23fffefb' stroke='%232f6f6a' stroke-width='2.2' stroke-linejoin='round'/%3E%3Cpath d='M8.5 21h15l2.3 4.5a1 1 0 0 1-.9 1.5H7.1a1 1 0 0 1-.9-1.5z' fill='%232f6f6a'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="assets/style.css">
+  <meta name="description" content="Ember to Ocean: how wildfires, air quality, water condition and salmon fisheries are linked across Canada, the USA and Russia, 2012–2025. NASA Space Apps 2026.">
+  <meta name="color-scheme" content="light">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23fff'/%3E%3Cpath d='M16 4c3 5 7 8 7 14a7 7 0 0 1-14 0c0-3 1-5 3-7 0 3 1 4 3 5 0-4 0-8 1-12z' fill='%23D55E00'/%3E%3Cpath d='M3 27c3-2 6-2 9 0s6 2 9 0 6-2 8 0' fill='none' stroke='%230072B2' stroke-width='2'/%3E%3C/svg%3E">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+  <!-- The only external libraries (contract R2): maplibre-gl 5, maplibre-contour 0.1.0; Observable Plot is imported by the chart modules. -->
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css">
+  <script defer src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+  <script defer src="https://unpkg.com/maplibre-contour@0.1.0/dist/index.min.js"></script>
+
+  <link rel="stylesheet" href="./css/tokens.css">
+  <link rel="stylesheet" href="./css/layout.css">
+  <script type="module" src="./js/main.js"></script>
 </head>
 <body>
-  <a class="skip" href="#content">Skip to content</a>
-  <header class="site-header">
-    <button class="menu-toggle" aria-label="Toggle navigation">☰</button>
-    <a class="brand" href="#/">
-      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
-        <path d="M12 3h8M13 3v9L5 26a2 2 0 0 0 2 3h18a2 2 0 0 0 2-3L19 12V3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
-        <path d="M8.5 21h15l2.3 4.5a1 1 0 0 1-.9 1.5H7.1a1 1 0 0 1-.9-1.5z" fill="currentColor" opacity=".85"/>
-        <circle cx="14" cy="17" r="1.2" fill="currentColor"/><circle cx="17.5" cy="14.5" r=".9" fill="currentColor"/>
-      </svg>
-      <span class="brand-text"><span class="brand-name">Ember to Ocean</span><span class="brand-tag">An environmental data laboratory</span></span>
-    </a>
-    <form class="search" id="search-form" role="search">
-      <input type="search" id="search-input" placeholder="Search Ember to Ocean" aria-label="Search">
-      <button type="submit">Search</button>
-    </form>
-  </header>
+  <main class="page">
+    <header id="site-header" class="slot" aria-label="Site header">
+      <p class="placeholder">#site-header · loading…</p>
+    </header>
 
-  <div class="layout">
-    <nav class="sidebar" id="sidebar" aria-label="Site navigation"></nav>
-    <main id="content" class="content" tabindex="-1">
-      <noscript><p>Ember to Ocean needs JavaScript enabled to read its data files.</p></noscript>
-    </main>
-  </div>
+    <div id="year-slider" class="slot" aria-label="Year slider">
+      <p class="placeholder">#year-slider · loading…</p>
+    </div>
 
-  <footer class="site-footer"><p id="footer-text"></p></footer>
+    <figure id="map" class="slot" aria-label="Map">
+      <p class="placeholder">#map · loading…</p>
+      <div id="map-legend" aria-label="Map legend"></div>
+    </figure>
 
-  <script src="assets/config.js"></script>
-  <script src="assets/csv.js"></script>
-  <script src="assets/stats.js"></script>
-  <script src="assets/chart.js"></script>
-  <script src="assets/map.js"></script>
-  <script src="assets/app.js"></script>
+    <figure id="fig1" class="slot" aria-label="Figure 1, trend">
+      <p class="placeholder">#fig1 · Fig. 1 trend · loading…</p>
+    </figure>
+
+    <figure id="fig2" class="slot" aria-label="Figure 2, before and after">
+      <p class="placeholder">#fig2 · Fig. 2 before / after · loading…</p>
+    </figure>
+
+    <aside id="infobox" class="slot" aria-label="Infobox">
+      <p class="placeholder">#infobox · loading…</p>
+    </aside>
+
+    <figure id="fig3" class="slot" aria-label="Figure 3, the chain">
+      <p class="placeholder">#fig3 · Fig. 3 chain · loading…</p>
+    </figure>
+
+    <article id="methods" class="slot" aria-label="Methods">
+      <p class="placeholder">#methods · loading…</p>
+    </article>
+  </main>
+  <noscript><p class="placeholder">Ember to Ocean needs JavaScript to load its data files.</p></noscript>
 </body>
 </html>

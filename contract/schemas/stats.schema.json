@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ember-to-ocean.local/contract/schemas/stats.schema.json",
+  "title": "Ember to Ocean - stats.json (one per scope)",
+  "description": "Trend tests (Mann-Kendall + Sen slope; seasonal Mann-Kendall for monthly entries), before/after event tests (Welch t, Mann-Whitney U, Cohen's d on deseasonalised May-Sep values) and Spearman lag links. Country scope: exactly two links (fire_frp -> aod by month, fire_frp -> fish metric by year), before/after for aod only, no water trends. Basin scope: exactly four links (fire_frp -> aod, aod -> kd490, kd490 -> fish metric, fire_frp -> fish metric). kd490 always means the scope's primary water body. Unknown values are null; direction is 'no trend' whenever p >= 0.05.",
+  "type": "object",
+  "required": ["scope", "trends", "beforeAfter", "links"],
+  "additionalProperties": false,
+  "properties": {
+    "scope": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(/[a-z][a-z0-9_]*)?$" },
+    "trends": { "type": "array", "items": { "$ref": "#/$defs/trend" } },
+    "beforeAfter": { "type": "array", "items": { "$ref": "#/$defs/beforeAfter" } },
+    "links": { "type": "array", "items": { "$ref": "#/$defs/link" } }
+  },
+  "if": { "properties": { "scope": { "pattern": "/" } } },
+  "then": {
+    "properties": {
+      "links": {
+        "minItems": 4,
+        "maxItems": 4,
+        "allOf": [
+          { "contains": { "properties": { "from": { "const": "fire_frp" }, "to": { "const": "aod" }, "lag_unit": { "const": "month" } } } },
+          { "contains": { "properties": { "from": { "const": "aod" }, "to": { "const": "kd490" }, "lag_unit": { "const": "year" } } } },
+          { "contains": { "properties": { "from": { "const": "kd490" }, "to": { "$ref": "#/$defs/fishId" }, "lag_unit": { "const": "year" } } } },
+          { "contains": { "properties": { "from": { "const": "fire_frp" }, "to": { "$ref": "#/$defs/fishId" }, "lag_unit": { "const": "year" } } } }
+        ]
+      }
+    }
+  },
+  "else": {
+    "properties": {
+      "trends": { "items": { "properties": { "variable": { "not": { "enum": ["kd490", "chlor_a"] } }, "waterBody": { "type": "null" } } } },
+      "beforeAfter": { "items": { "properties": { "variable": { "const": "aod" }, "waterBody": { "type": "null" } } } },
+      "links": {
+        "minItems": 2,
+        "maxItems": 2,
+        "allOf": [
+          { "contains": { "properties": { "from": { "const": "fire_frp" }, "to": { "const": "aod" }, "lag_unit": { "const": "month" } } } },
+          { "contains": { "properties": { "from": { "const": "fire_frp" }, "to": { "$ref": "#/$defs/fishId" }, "lag_unit": { "const": "year" } } } }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "varId": { "enum": ["fire_count", "fire_frp", "aod", "pm25", "kd490", "chlor_a", "fish_value", "fish_catch"] },
+    "fishId": { "enum": ["fish_value", "fish_catch"] },
+    "year": { "type": "integer", "minimum": 2012, "maximum": 2025 },
+    "p": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "trend": {
+      "type": "object",
+      "required": ["variable", "waterBody", "basis", "test", "n", "tau", "p", "sen_slope", "sen_intercept", "slope_unit", "direction"],
+      "additionalProperties": false,
+      "properties": {
+        "variable": { "$ref": "#/$defs/varId" },
+        "waterBody": { "type": ["string", "null"] },
+        "basis": { "enum": ["annual", "monthly"] },
+        "test": { "enum": ["mann_kendall", "seasonal_mann_kendall"] },
+        "n": { "type": "integer", "minimum": 0 },
+        "tau": { "type": ["number", "null"], "minimum": -1, "maximum": 1 },
+        "p": { "$ref": "#/$defs/p" },
+        "sen_slope": { "type": ["number", "null"] },
+        "sen_intercept": { "type": ["number", "null"] },
+        "slope_unit": { "const": "per year" },
+        "direction": { "enum": ["increasing", "decreasing", "no trend"] }
+      },
+      "allOf": [
+        { "if": { "properties": { "basis": { "const": "monthly" } } }, "then": { "properties": { "test": { "const": "seasonal_mann_kendall" }, "sen_intercept": { "type": "null" } } } },
+        { "if": { "properties": { "basis": { "const": "annual" } } }, "then": { "properties": { "test": { "const": "mann_kendall" } } } },
+        { "if": { "properties": { "variable": { "enum": ["kd490", "chlor_a"] } } }, "then": { "properties": { "waterBody": { "type": "string" } } }, "else": { "properties": { "waterBody": { "type": "null" } } } }
+      ]
+    },
+    "beforeAfter": {
+      "type": "object",
+      "required": ["variable", "waterBody", "event", "months", "before_years", "after_years", "n_before", "n_after", "mean_before", "mean_after", "welch_t", "df", "p", "cohens_d", "mannwhitney_p"],
+      "additionalProperties": false,
+      "properties": {
+        "variable": { "enum": ["aod", "kd490", "chlor_a"] },
+        "waterBody": { "type": ["string", "null"] },
+        "event": { "$ref": "#/$defs/year" },
+        "months": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "integer", "minimum": 1, "maximum": 12 } },
+        "before_years": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/year" } },
+        "after_years": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/year" } },
+        "n_before": { "type": "integer", "minimum": 2 },
+        "n_after": { "type": "integer", "minimum": 2 },
+        "mean_before": { "type": "number" },
+        "mean_after": { "type": "number" },
+        "welch_t": { "type": "number" },
+        "df": { "type": "number", "exclusiveMinimum": 0 },
+        "p": { "type": "number", "minimum": 0, "maximum": 1 },
+        "cohens_d": { "type": "number" },
+        "mannwhitney_p": { "type": "number", "minimum": 0, "maximum": 1 }
+      },
+      "if": { "properties": { "variable": { "const": "aod" } } },
+      "then": { "properties": { "waterBody": { "type": "null" } } },
+      "else": { "properties": { "waterBody": { "type": "string" } } }
+    },
+    "lagEntry": {
+      "type": "object",
+      "required": ["lag", "rho", "p", "p_adj", "n"],
+      "additionalProperties": false,
+      "properties": {
+        "lag": { "type": "integer", "minimum": 0 },
+        "rho": { "type": ["number", "null"], "minimum": -1, "maximum": 1 },
+        "p": { "$ref": "#/$defs/p" },
+        "p_adj": { "$ref": "#/$defs/p" },
+        "n": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    },
+    "link": {
+      "type": "object",
+      "required": ["from", "to", "method", "lag", "lag_unit", "rho", "p", "p_adj", "n", "all_lags"],
+      "additionalProperties": false,
+      "properties": {
+        "from": { "$ref": "#/$defs/varId" },
+        "to": { "$ref": "#/$defs/varId" },
+        "method": { "const": "spearman" },
+        "lag": { "type": "integer", "minimum": 0 },
+        "lag_unit": { "enum": ["month", "year"] },
+        "rho": { "type": ["number", "null"], "minimum": -1, "maximum": 1 },
+        "p": { "$ref": "#/$defs/p" },
+        "p_adj": { "$ref": "#/$defs/p" },
+        "n": { "type": ["integer", "null"], "minimum": 0 },
+        "all_lags": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/lagEntry" } }
+      }
+    }
+  }
+}

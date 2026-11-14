@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ember-to-ocean.local/contract/schemas/series.schema.json",
+  "title": "Ember to Ocean - series.json (one per scope)",
+  "description": "Monthly (168 months, 2012-01..2025-12) and annual (14 years) series per variable. Unknown is null, never 0 and never omitted. Fish variables have monthly = null. Water variables (kd490, chlor_a) live under waterBodies and only in basin scopes; waterBodies is {} in country scopes.",
+  "type": "object",
+  "required": ["scope", "variables", "waterBodies"],
+  "additionalProperties": false,
+  "properties": {
+    "scope": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(/[a-z][a-z0-9_]*)?$" },
+    "variables": {
+      "type": "object",
+      "required": ["fire_count", "fire_frp", "aod", "pm25", "fish_value", "fish_catch"],
+      "properties": {
+        "fire_count": { "$ref": "#/$defs/variable" },
+        "fire_frp": { "$ref": "#/$defs/variable" },
+        "aod": { "$ref": "#/$defs/variable" },
+        "pm25": { "$ref": "#/$defs/variable" },
+        "fish_value": { "$ref": "#/$defs/fishVariable" },
+        "fish_catch": { "$ref": "#/$defs/fishVariable" }
+      },
+      "additionalProperties": { "$ref": "#/$defs/variable" }
+    },
+    "waterBodies": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9_]*$" },
+      "additionalProperties": {
+        "type": "object",
+        "required": ["kd490", "chlor_a"],
+        "properties": {
+          "kd490": { "$ref": "#/$defs/variable" },
+          "chlor_a": { "$ref": "#/$defs/variable" }
+        },
+        "additionalProperties": { "$ref": "#/$defs/variable" }
+      }
+    }
+  },
+  "if": { "properties": { "scope": { "not": { "pattern": "/" } } } },
+  "then": { "properties": { "waterBodies": { "maxProperties": 0 } } },
+  "$defs": {
+    "value": { "type": ["number", "null"] },
+    "monthlyPoint": {
+      "type": "array",
+      "prefixItems": [{ "type": "string", "pattern": "^\\d{4}-\\d{2}$" }, { "$ref": "#/$defs/value" }],
+      "items": false,
+      "minItems": 2
+    },
+    "annualPoint": {
+      "type": "array",
+      "prefixItems": [{ "type": "integer", "minimum": 2012, "maximum": 2025 }, { "$ref": "#/$defs/value" }],
+      "items": false,
+      "minItems": 2
+    },
+    "variable": {
+      "type": "object",
+      "required": ["label", "unit", "source", "monthly", "annual"],
+      "additionalProperties": false,
+      "properties": {
+        "label": { "type": "string", "minLength": 1 },
+        "unit": { "type": "string" },
+        "source": { "type": "string" },
+        "monthly": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "array", "minItems": 168, "maxItems": 168, "items": { "$ref": "#/$defs/monthlyPoint" } }
+          ]
+        },
+        "annual": { "type": "array", "minItems": 14, "maxItems": 14, "items": { "$ref": "#/$defs/annualPoint" } }
+      }
+    },
+    "fishVariable": {
+      "allOf": [
+        { "$ref": "#/$defs/variable" },
+        { "properties": { "monthly": { "type": "null" } } }
+      ]
+    }
+  }
+}

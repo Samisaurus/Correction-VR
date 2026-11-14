@@ -1,0 +1,23 @@
+{
+ "type": "FeatureCollection",
+ "scope": "canada",
+ "year": 2023,
+ "features": [
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -120.25,
+     55.75
+    ]
+   },
+   "properties": {
+    "count": 412,
+    "frp_sum": 3821.4,
+    "first": "2023-05-04",
+    "last": "2023-09-18"
+   }
+  }
+ ]
+}

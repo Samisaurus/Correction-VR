@@ -1,0 +1,76 @@
+{
+ "type": "FeatureCollection",
+ "scope": "canada/fraser",
+ "features": [
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -127,
+       49
+      ],
+      [
+       -119,
+       49
+      ],
+      [
+       -119,
+       55
+      ],
+      [
+       -127,
+       55
+      ],
+      [
+       -127,
+       49
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "kind": "basin",
+    "id": "fraser",
+    "name": "Fraser River basin, British Columbia"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -123.6,
+       48.9
+      ],
+      [
+       -123.1,
+       48.9
+      ],
+      [
+       -123.1,
+       49.3
+      ],
+      [
+       -123.6,
+       49.3
+      ],
+      [
+       -123.6,
+       48.9
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "kind": "water",
+    "id": "fraser_plume",
+    "name": "Fraser River plume, Strait of Georgia"
+   }
+  }
+ ]
+}
