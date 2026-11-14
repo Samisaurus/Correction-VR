@@ -1,0 +1,133 @@
+/* css/tokens.css — Ember to Ocean design tokens and base typography (Claude · C1).
+   White "lab report" page: thin grey rules, serif headings, Inter body, monospace numbers.
+   The --c-* colours are the same hex values as js/theme.js COLORS. */
+
+:root {
+  --c-fire: #D55E00;
+  --c-smoke: #8A7F72;
+  --c-water: #009E73;
+  --c-river: #56B4E9;
+  --c-polluted: #7B3294;
+  --c-fish: #0072B2;
+  --c-year: #E69F00;
+  --c-ink: #202122;
+  --c-muted: #54595D;
+  --c-rule: #A2A9B1;
+  --c-panel: #F8F9FA;
+  --c-link: #3366CC;
+  --c-paper: #FFFFFF;
+  --c-contour: #8C7B6B;
+  --c-country: #202122;
+  --c-basin: #E69F00;
+
+  --f-serif: 'Source Serif 4', Georgia, serif;
+  --f-sans: 'Inter', system-ui, sans-serif;
+  --f-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  --rule: 1px solid var(--c-rule);
+  --radius: 2px;
+  color-scheme: light;
+}
+
+html {
+  background: var(--c-paper);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--f-sans);
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--c-ink);
+  background: var(--c-paper);
+  -webkit-font-smoothing: antialiased;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+h1, h2, h3, h4 {
+  font-family: var(--f-serif);
+  font-weight: 400;
+  color: var(--c-ink);
+  margin: 0;
+  line-height: 1.25;
+}
+
+h1 { font-size: 26px; font-weight: 600; }
+h2 { font-size: 20px; border-bottom: var(--rule); padding-bottom: 3px; margin: 1.1em 0 0.5em; }
+h3 { font-size: 16px; font-weight: 600; margin: 1em 0 0.35em; }
+
+p { margin: 0 0 0.75em; }
+
+a { color: var(--c-link); text-decoration: none; }
+a:hover, a:focus-visible { text-decoration: underline; }
+
+button {
+  font: inherit;
+  color: inherit;
+  background: var(--c-paper);
+  border: var(--rule);
+  border-radius: var(--radius);
+  padding: 3px 10px;
+  cursor: pointer;
+}
+button:hover { background: var(--c-panel); }
+button[disabled] { cursor: default; opacity: 0.5; }
+
+:focus-visible {
+  outline: 2px solid var(--c-link);
+  outline-offset: 2px;
+}
+
+figure { margin: 0; }
+figcaption, .caption {
+  font-size: 13px;
+  font-style: italic;
+  color: var(--c-muted);
+}
+
+/* numbers */
+.num, .mono, td.num, th.num {
+  font-family: var(--f-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+code, kbd, samp {
+  font-family: var(--f-mono);
+  font-size: 0.92em;
+}
+
+table {
+  border-collapse: collapse;
+  font-size: 14px;
+}
+th, td {
+  text-align: left;
+  vertical-align: top;
+  padding: 4px 8px;
+  border-bottom: var(--rule);
+}
+th { font-weight: 600; }
+td.num, th.num { text-align: right; }
+
+/* muted italic message written by theme.placeholder() and the static slot placeholders */
+.placeholder {
+  margin: 0;
+  padding: 14px 16px;
+  color: var(--c-muted);
+  font-style: italic;
+  font-size: 14px;
+}
+
+.visually-hidden {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+}

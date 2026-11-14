@@ -1,0 +1,146 @@
+{
+ "scope": "canada",
+ "trends": [
+  {
+   "variable": "aod",
+   "waterBody": null,
+   "basis": "annual",
+   "test": "mann_kendall",
+   "n": 14,
+   "tau": 0.21,
+   "p": 0.003,
+   "sen_slope": 0.0012,
+   "sen_intercept": 0.09,
+   "slope_unit": "per year",
+   "direction": "increasing"
+  },
+  {
+   "variable": "fire_frp",
+   "waterBody": null,
+   "basis": "monthly",
+   "test": "seasonal_mann_kendall",
+   "n": 168,
+   "tau": 0.1,
+   "p": 0.2,
+   "sen_slope": 12.0,
+   "sen_intercept": null,
+   "slope_unit": "per year",
+   "direction": "no trend"
+  }
+ ],
+ "beforeAfter": [
+  {
+   "variable": "aod",
+   "waterBody": null,
+   "event": 2017,
+   "months": [
+    5,
+    6,
+    7,
+    8,
+    9
+   ],
+   "before_years": [
+    2014,
+    2015,
+    2016
+   ],
+   "after_years": [
+    2017
+   ],
+   "n_before": 15,
+   "n_after": 5,
+   "mean_before": 0.12,
+   "mean_after": 0.21,
+   "welch_t": 2.9,
+   "df": 6.3,
+   "p": 0.02,
+   "cohens_d": 1.4,
+   "mannwhitney_p": 0.03
+  }
+ ],
+ "links": [
+  {
+   "from": "fire_frp",
+   "to": "aod",
+   "method": "spearman",
+   "lag": 0,
+   "lag_unit": "month",
+   "rho": 0.62,
+   "p": 0.0001,
+   "p_adj": 0.0003,
+   "n": 168,
+   "all_lags": [
+    {
+     "lag": 0,
+     "rho": 0.62,
+     "p": 0.0001,
+     "p_adj": 0.0001,
+     "n": 168
+    },
+    {
+     "lag": 1,
+     "rho": 0.3,
+     "p": 0.01,
+     "p_adj": 0.01,
+     "n": 167
+    },
+    {
+     "lag": 2,
+     "rho": 0.1,
+     "p": 0.3,
+     "p_adj": 0.3,
+     "n": 166
+    }
+   ]
+  },
+  {
+   "from": "fire_frp",
+   "to": "fish_value",
+   "method": "spearman",
+   "lag": 2,
+   "lag_unit": "year",
+   "rho": -0.5,
+   "p": 0.1,
+   "p_adj": 0.2,
+   "n": 12,
+   "all_lags": [
+    {
+     "lag": 0,
+     "rho": -0.1,
+     "p": 0.8,
+     "p_adj": 0.8,
+     "n": 14
+    },
+    {
+     "lag": 1,
+     "rho": -0.3,
+     "p": 0.3,
+     "p_adj": 0.3,
+     "n": 13
+    },
+    {
+     "lag": 2,
+     "rho": -0.5,
+     "p": 0.1,
+     "p_adj": 0.1,
+     "n": 12
+    },
+    {
+     "lag": 3,
+     "rho": null,
+     "p": null,
+     "p_adj": null,
+     "n": 7
+    },
+    {
+     "lag": 4,
+     "rho": null,
+     "p": null,
+     "p_adj": null,
+     "n": 6
+    }
+   ]
+  }
+ ]
+}

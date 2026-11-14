@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ember-to-ocean.local/contract/schemas/regions.schema.json",
+  "title": "Ember to Ocean - data/regions.json",
+  "description": "Source of truth for countries, case-study basins, cameras, bounding boxes, water bodies and event years. The primer's example validates against this schema. ids are lowercase slugs so new countries or basins can be added later.",
+  "type": "object",
+  "required": ["years", "mock", "countries"],
+  "additionalProperties": false,
+  "properties": {
+    "years": {
+      "description": "Inclusive year range of every series: always [2012, 2025].",
+      "type": "array",
+      "prefixItems": [{ "const": 2012 }, { "const": 2025 }],
+      "items": false,
+      "minItems": 2
+    },
+    "mock": {
+      "description": "true while data/ holds mock output (the MOCK DATA badge shows); the pipeline writes false.",
+      "type": "boolean"
+    },
+    "countries": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/country" }
+    }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+    "lon": { "type": "number", "minimum": -180, "maximum": 180 },
+    "lat": { "type": "number", "minimum": -90, "maximum": 90 },
+    "bbox": {
+      "description": "[west, south, east, north] in degrees.",
+      "type": "array",
+      "prefixItems": [{ "$ref": "#/$defs/lon" }, { "$ref": "#/$defs/lat" }, { "$ref": "#/$defs/lon" }, { "$ref": "#/$defs/lat" }],
+      "items": false,
+      "minItems": 4
+    },
+    "camera": {
+      "type": "object",
+      "required": ["center", "zoom", "pitch", "bearing"],
+      "additionalProperties": false,
+      "properties": {
+        "center": { "type": "array", "prefixItems": [{ "$ref": "#/$defs/lon" }, { "$ref": "#/$defs/lat" }], "items": false, "minItems": 2 },
+        "zoom": { "type": "number", "minimum": 0, "maximum": 22 },
+        "pitch": { "type": "number", "minimum": 0, "maximum": 85 },
+        "bearing": { "type": "number", "minimum": -180, "maximum": 180 }
+      }
+    },
+    "eventYears": {
+      "description": "Major fire years, ascending. Country scopes and amur: recomputed by the pipeline (two highest annual fire_frp). fraser and yukon: fixed.",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "integer", "minimum": 2012, "maximum": 2025 }
+    },
+    "fishMetric": { "enum": ["fish_value", "fish_catch"] },
+    "currency": { "enum": ["CAD", "USD", null] },
+    "waterBody": {
+      "type": "object",
+      "required": ["id", "name", "bbox"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "type": "string", "minLength": 1 },
+        "bbox": { "$ref": "#/$defs/bbox" }
+      }
+    },
+    "basin": {
+      "type": "object",
+      "required": ["id", "name", "shortName", "bbox", "camera", "eventYears", "fishMetric", "currency", "primaryWaterBody", "waterBodies"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "type": "string", "minLength": 1 },
+        "shortName": { "type": "string", "minLength": 1 },
+        "bbox": { "$ref": "#/$defs/bbox" },
+        "camera": { "$ref": "#/$defs/camera" },
+        "eventYears": { "$ref": "#/$defs/eventYears" },
+        "fishMetric": { "$ref": "#/$defs/fishMetric" },
+        "currency": { "$ref": "#/$defs/currency" },
+        "primaryWaterBody": { "$ref": "#/$defs/id" },
+        "waterBodies": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/waterBody" } }
+      }
+    },
+    "country": {
+      "type": "object",
+      "required": ["id", "name", "shortName", "bbox", "camera", "eventYears", "fishMetric", "currency", "basin"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "type": "string", "minLength": 1 },
+        "shortName": { "type": "string", "minLength": 1 },
+        "bbox": { "$ref": "#/$defs/bbox" },
+        "camera": { "$ref": "#/$defs/camera" },
+        "eventYears": { "$ref": "#/$defs/eventYears" },
+        "fishMetric": { "$ref": "#/$defs/fishMetric" },
+        "currency": { "$ref": "#/$defs/currency" },
+        "basin": { "$ref": "#/$defs/basin" }
+      }
+    }
+  }
+}

@@ -1,0 +1,76 @@
+<!-- content/methods.html — HTML fragment inserted into #methods by js/main.js (GPT-UI · Task G6, built here).
+     Wikipedia-style article: Methods, Data, Statistics, Caveats, Team and AI use, Credits.
+     Text in [BRACKETS] is for the team to fill in before submission. -->
+<style data-module="mth">
+  .mth-article { font-size: 15px; line-height: 1.6; }
+  .mth-article h2 { font-family: var(--f-serif); font-size: 20px; font-weight: 400; border-bottom: 1px solid var(--c-rule); padding-bottom: 3px; margin: 1.3em 0 0.5em; }
+  .mth-article h2:first-child { margin-top: 0.4em; }
+  .mth-article p, .mth-article li { margin: 0 0 0.7em; }
+  .mth-article ul { padding-left: 1.3em; }
+  .mth-lead { font-size: 16px; }
+  .mth-table { width: 100%; border-collapse: collapse; font-size: 13.5px; margin: 0.4em 0 1em; }
+  .mth-table th, .mth-table td { text-align: left; vertical-align: top; padding: 5px 8px; border-bottom: 1px solid var(--c-rule); }
+  .mth-table th { background: var(--c-panel); font-weight: 600; }
+  .mth-todo { color: var(--c-fire); font-family: var(--f-mono); font-size: 0.92em; }
+  .mth-small { font-size: 13px; color: var(--c-muted); }
+  .mth-dl dt { font-weight: 600; margin-top: 0.5em; }
+  .mth-dl dd { margin: 0.1em 0 0.3em 0; }
+</style>
+<div class="mth-article">
+  <h2 id="methods-methods">Methods</h2>
+  <p class="mth-lead">Ember to Ocean follows one question across three whole countries: when forests burn, does the smoke reach the air, does the water downstream change, and does the salmon fishery feel it? Every panel on this page reads the same chain, fire → air → water → fish, for Canada, the United States (including Alaska) and Russia, 2012–2025.</p>
+  <p>The site works at <strong>two levels</strong>, and every panel switches with the toggle in the header.</p>
+  <ul>
+    <li><strong>Whole country</strong> (the main view). The entire country on a globe. Fire detections are summed into 0.5° cells per year (circle size = detections, opacity = fire radiative power). Smoke is the May–September mean aerosol optical depth (AOD) in 2.0° × 2.5° blocks. Major rivers are drawn in blue and turn purple in the years when a fire cell lay within 50 km of them. The infobox and Fig. 1–3 use national series: fire detections and fire power, AOD, and the national salmon landed value (Canada, USA) or catch (Russia).</li>
+    <li><strong>Case study</strong> (the proof). One basin per country where satellite water measurements are possible close to the river mouth: the Fraser River plume in the Strait of Georgia, the Yukon delta coast on the Bering Sea, and the Amur estuary (Amur Liman). The map zooms into pitched terrain with contours, 0.1° fire cells, native MERRA-2 air cells (0.5° × 0.625°) and HydroRIVERS streams (purple within 25 km of a fire). The green box is the rectangle over which MODIS-Aqua water turbidity (Kd490) and chlorophyll-a are averaged. Only here can the full chain, including water, be tested.</li>
+  </ul>
+  <p>Annual values mean: fire variables are sums over the calendar year; AOD, PM2.5, Kd490 and chlorophyll-a are means over May–September (the fire and open-water season); fish values are calendar-year totals, with landed value converted to 2024 prices with the national consumer price index. A true zero (no fires in a month) is stored as 0; an unknown value is stored as null and shown as a dash.</p>
+  <p>Fire years marked with orange triangles on the slider are the two years with the highest annual fire radiative power in each country and in the Amur basin; for the Fraser and Yukon basins they are fixed to the documented large fire seasons.</p>
+
+  <h2 id="methods-data">Data</h2>
+  <table class="mth-table">
+    <thead><tr><th>Dataset</th><th>Provider</th><th>Resolution</th><th>Years</th><th>Link</th></tr></thead>
+    <tbody>
+      <tr><td>Active fire detections and fire radiative power (VIIRS S-NPP, VNP14IMGT)</td><td>NASA FIRMS</td><td>375 m, daily; cells of 0.5° / 0.1°</td><td>2012–2025</td><td><a href="https://firms.modaps.eosdis.nasa.gov/country/" rel="noopener">FIRMS country files</a></td></tr>
+      <tr><td>Aerosol optical depth at 550 nm (MERRA-2 M2TMNXAER, TOTEXTTAU)</td><td>NASA GES DISC via Giovanni</td><td>0.5° × 0.625°, monthly</td><td>2012–2025</td><td><a href="https://giovanni.gsfc.nasa.gov/giovanni/" rel="noopener">Giovanni</a></td></tr>
+      <tr><td>Water turbidity (Kd490) and chlorophyll-a (MODIS-Aqua Level-3)</td><td>NASA OB.DAAC via Giovanni</td><td>4–9 km, monthly, over the water box</td><td>2012–2025</td><td><a href="https://oceancolor.gsfc.nasa.gov/" rel="noopener">OB.DAAC</a></td></tr>
+      <tr><td>Terrain (hillshade, 2.5D relief and contours)</td><td>AWS Terrain Tiles (Terrarium)</td><td>Up to zoom 15</td><td>—</td><td><a href="https://registry.opendata.aws/terrain-tiles/" rel="noopener">Terrain Tiles</a></td></tr>
+      <tr><td>Basin outlines and streams</td><td>HydroSHEDS (HydroBASINS, HydroRIVERS)</td><td>15 arc-second derived; order ≥ 4</td><td>—</td><td><a href="https://www.hydrosheds.org/" rel="noopener">HydroSHEDS</a></td></tr>
+      <tr><td>Country outlines and major rivers</td><td>Natural Earth</td><td>1:50m, 1:10m</td><td>—</td><td><a href="https://www.naturalearthdata.com/" rel="noopener">Natural Earth</a></td></tr>
+      <tr><td>Salmon landed value and catch, Canada and British Columbia</td><td>Fisheries and Oceans Canada (DFO)</td><td>National / provincial, annual</td><td>2012–2024 <span class="mth-todo">[confirm]</span></td><td><a href="https://www.dfo-mpo.gc.ca/stats/commercial/sea-maritimes-eng.htm" rel="noopener">DFO statistics</a></td></tr>
+      <tr><td>Pacific salmon landed value, USA and Alaska (Yukon–Kuskokwim ex-vessel value)</td><td>NOAA Fisheries; ADF&amp;G</td><td>National / regional, annual</td><td>2012–2024 <span class="mth-todo">[confirm]</span></td><td><a href="https://www.fisheries.noaa.gov/foss/" rel="noopener">NOAA FOSS</a></td></tr>
+      <tr><td>Pacific salmon catch, Russian Federation and FAO area 61</td><td>FAO FishStat</td><td>National, annual (tonnes)</td><td>2012–2023 <span class="mth-todo">[confirm]</span></td><td><a href="https://www.fao.org/fishery/en/statistics" rel="noopener">FAO FishStat</a></td></tr>
+      <tr><td>Consumer price index (CAD, USD) for 2024 prices</td><td>Statistics Canada; US BLS</td><td>Annual</td><td>2012–2024</td><td><a href="https://data.worldbank.org/indicator/FP.CPI.TOTL" rel="noopener">World Bank CPI</a></td></tr>
+      <tr><td>Basemap</td><td>OpenFreeMap (OpenMapTiles, OpenStreetMap contributors)</td><td>Vector tiles</td><td>—</td><td><a href="https://openfreemap.org/" rel="noopener">OpenFreeMap</a></td></tr>
+    </tbody>
+  </table>
+  <p class="mth-small">Every number on this page is produced by the open pipeline in <code>pipeline/</code> from these raw downloads; the file formats are fixed in <code>CONTRACT.md</code> and checked by <code>pipeline/validate.py</code>. While the infobox shows a red <em>MOCK DATA</em> badge, the files under <code>data/</code> are placeholders from <code>tools/make_mock.py</code> and not measurements.</p>
+
+  <h2 id="methods-statistics">Statistics</h2>
+  <dl class="mth-dl">
+    <dt>Trend (Fig. 1)</dt>
+    <dd>Mann–Kendall test on the 14 annual values (nulls dropped, at least 8 needed) with Kendall's τ and the two-sided p-value; the thick line is the Sen (Theil–Sen) slope, the median of all pairwise slopes, with intercept = median(y − slope · (year − 2012)). Monthly series (fire power, AOD) use the seasonal Mann–Kendall test with period 12; water variables use May–September only (period 5). A trend is reported as increasing or decreasing only when p &lt; 0.05.</dd>
+    <dt>Before / after a fire year (Fig. 2)</dt>
+    <dd>May–September monthly values are deseasonalised by subtracting the 2012–2025 mean of each calendar month. For AOD the "after" period is the fire year itself and "before" the three preceding years; for Kd490 and chlorophyll-a "after" is the two following years. Welch's t-test (unequal variances, Welch–Satterthwaite degrees of freedom), a Mann–Whitney U check and Cohen's d (pooled SD) are computed on the anomalies; the bars show the raw means. At least 6 valid months are needed on each side (4 of the 5 when a side is a single fire year).</dd>
+    <dt>The chain (Fig. 3)</dt>
+    <dd>Spearman rank correlation between consecutive links: fire power → AOD on monthly values at lags of 0–2 months; AOD → Kd490, Kd490 → fish and fire power → fish on annual values at lags of 0–4 years (water links in the case-study basins only). Within each link the p-values of all lags are adjusted with the Benjamini–Hochberg procedure, and the lag with the largest |ρ| is drawn: solid and coloured when the adjusted p &lt; 0.05, dashed grey otherwise.</dd>
+  </dl>
+
+  <h2 id="methods-caveats">Caveats</h2>
+  <ul>
+    <li><strong>Satellite proxies are not chemical pollution measurements.</strong> AOD measures how much light the whole atmospheric column scatters, Kd490 how quickly light is attenuated in the upper water column, chlorophyll-a how much phytoplankton pigment is present. They respond to smoke, sediment and plankton, not to specific contaminants.</li>
+    <li><strong>Association is not causation.</strong> Spearman correlations and before/after differences describe co-variation. Weather, snowmelt, river discharge, ocean conditions and reporting practices all move these series.</li>
+    <li><strong>Fish revenue has many drivers.</strong> Prices, quotas, run forecasts, hatchery policy, the 2014–2016 north-east Pacific marine heatwave ("the Blob") and the 2019 heat dome all moved salmon landings and value independently of wildfire.</li>
+    <li><strong>Russian fish data are FAO catch in tonnes</strong>, not landed value, so Russia's fish node uses catch. The Amur series is FAO fishing-area 61 chum and pink salmon catch and is not specific to the Amur River.</li>
+    <li><strong>Russia's map stops at 180° E.</strong> The Chukotka tip east of the antimeridian is excluded from the bounding box, the fire cells and the AOD blocks.</li>
+    <li><strong>Ice and cloud gaps.</strong> Water variables are missing in winter (sea ice) and under persistent cloud; months with fewer than two (water) or three (air) valid May–September values are left null. VIIRS detection counts also depend on cloud cover and the number of overpasses, and 2025 may be a partial year.</li>
+    <li><strong>Grid artefacts.</strong> Country-level fire cells (0.5°) and air blocks (2.0° × 2.5°) are coarse by design so the whole country loads in one file; absolute values depend on the cell size.</li>
+  </ul>
+
+  <h2 id="methods-team">Team and AI use</h2>
+  <p><span class="mth-todo">[TEAM NAMES, roles and Local Event]</span></p>
+  <p>The plan, the data contract (<code>CONTRACT.md</code>), the design and all interpretation are the team's. The front end, the Python pipeline, the mock data and the statistics cross-check were written with Claude (Anthropic) from that written contract, file by file <span class="mth-todo">[adjust if ChatGPT or other tools were also used]</span>. All numbers shown are produced by our open pipeline from the public datasets listed above; no figure was generated or estimated by an AI model.</p>
+
+  <h2 id="methods-credits">Credits</h2>
+  <p>NASA FIRMS (LANCE) for VIIRS active fire data; NASA GES DISC Giovanni for MERRA-2 aerosol data; NASA Ocean Biology DAAC for MODIS-Aqua ocean colour; Fisheries and Oceans Canada, NOAA Fisheries, the Alaska Department of Fish and Game and FAO for fishery statistics; Mapzen and AWS Open Data for Terrain Tiles; HydroSHEDS; Natural Earth; OpenFreeMap, OpenMapTiles and OpenStreetMap contributors for the basemap; MapLibre GL JS, maplibre-contour and Observable Plot; the Source Serif 4, Inter and IBM Plex Mono typefaces. Built for the NASA Space Apps Challenge 2026.</p>
+</div>

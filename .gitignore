@@ -1,0 +1,6 @@
+pipeline/raw/*
+!pipeline/raw/.gitkeep
+pipeline/processed/
+__pycache__/
+*.pyc
+.DS_Store

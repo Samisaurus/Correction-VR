@@ -1,0 +1,58 @@
+{
+ "type": "FeatureCollection",
+ "scope": "canada",
+ "features": [
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      -122.9,
+      53.9
+     ],
+     [
+      -122.2,
+      52.1
+     ],
+     [
+      -123.1,
+      49.2
+     ]
+    ]
+   },
+   "properties": {
+    "id": 1,
+    "name": "Fraser",
+    "order": 8,
+    "nearFire": [
+     2017,
+     2021,
+     2023
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      -110.0,
+      60.0
+     ],
+     [
+      -115.0,
+      62.0
+     ]
+    ]
+   },
+   "properties": {
+    "id": 2,
+    "name": null,
+    "order": 3,
+    "nearFire": []
+   }
+  }
+ ]
+}

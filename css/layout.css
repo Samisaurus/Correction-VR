@@ -1,0 +1,88 @@
+/* css/layout.css — the five-row page grid (Claude · C1). Only this file positions the slots.
+   Desktop >= 1100 px: header | slider | map (7/12, 560 px) + fig1/fig2 stacked (5/12) |
+   infobox (5/12) + fig3 (7/12) | methods (760 px article column, centred).
+   900–1099 px: map full width, fig1 + fig2 side by side.  < 900 px: one column in the order
+   header, slider, map, infobox, fig1, fig2, fig3, methods. No shadows, no gradients, radius <= 2 px. */
+
+.page {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 0 16px 56px;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  grid-template-areas:
+    "header header header header header header header header header header header header"
+    "slider slider slider slider slider slider slider slider slider slider slider slider"
+    "map    map    map    map    map    map    map    fig1   fig1   fig1   fig1   fig1"
+    "map    map    map    map    map    map    map    fig2   fig2   fig2   fig2   fig2"
+    "infobox infobox infobox infobox infobox fig3 fig3 fig3 fig3 fig3 fig3 fig3"
+    "methods methods methods methods methods methods methods methods methods methods methods methods";
+}
+
+.slot {
+  min-width: 0;
+  border: 1px solid var(--c-rule);
+  border-radius: 2px;
+  background: var(--c-paper);
+  position: relative;
+}
+
+#site-header { grid-area: header; border: 0; border-bottom: 1px solid var(--c-rule); border-radius: 0; padding: 14px 0 10px; }
+#year-slider { grid-area: slider; padding: 10px 16px 12px; background: var(--c-panel); }
+#map { grid-area: map; min-height: 560px; overflow: hidden; }
+#fig1 { grid-area: fig1; min-height: 272px; }
+#fig2 { grid-area: fig2; min-height: 272px; }
+#infobox { grid-area: infobox; }
+#fig3 { grid-area: fig3; min-height: 260px; }
+#methods {
+  grid-area: methods;
+  border: 0;
+  border-radius: 0;
+  max-width: 760px;
+  width: 100%;
+  margin: 16px auto 0;
+  padding: 0 0 24px;
+}
+
+/* #map-legend is a slot inside the map frame: bottom-left overlay */
+#map-legend {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 3;
+  max-width: calc(100% - 24px);
+}
+
+@media (max-width: 1099px) {
+  .page {
+    grid-template-areas:
+      "header header header header header header header header header header header header"
+      "slider slider slider slider slider slider slider slider slider slider slider slider"
+      "map    map    map    map    map    map    map    map    map    map    map    map"
+      "fig1   fig1   fig1   fig1   fig1   fig1   fig2   fig2   fig2   fig2   fig2   fig2"
+      "infobox infobox infobox infobox infobox fig3 fig3 fig3 fig3 fig3 fig3 fig3"
+      "methods methods methods methods methods methods methods methods methods methods methods methods";
+  }
+  #map { min-height: 480px; }
+}
+
+@media (max-width: 899px) {
+  .page {
+    gap: 12px;
+    padding: 0 12px 40px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "header"
+      "slider"
+      "map"
+      "infobox"
+      "fig1"
+      "fig2"
+      "fig3"
+      "methods";
+  }
+  #map { min-height: 420px; }
+  #year-slider { padding: 8px 10px 10px; }
+  #map-legend { left: 8px; bottom: 8px; }
+}

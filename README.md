@@ -1,78 +1,64 @@
 # Ember to Ocean
 
-**NASA Space Apps Challenge 2026.** A lightweight, Wikipedia-style "laboratory" website that follows wildfire from the forest to the water: **forest fires → air pollution → water pollution** in **Canada**, the **United States** and **Russia**.
+**NASA Space Apps 2026.** A single-page, white "lab report" site that follows one chain across three whole
+countries, 2012–2025: **wildfire → air quality (AOD) → water condition → salmon fishery money**, for Canada,
+the United States (incl. Alaska) and Russia, with one case-study basin each (Fraser, Yukon–Kuskokwim, Amur)
+where satellite water measurements make the full chain testable.
 
-The site has **no data built in**. It reads whatever CSV files you put in `data/`, works out which columns are years, dates, measurements, categories and coordinates, and builds everything from them.
+Plain JavaScript ES modules, no build step, three CDN libraries (MapLibre GL 5, maplibre-contour 0.1.0,
+Observable Plot 0.6). Runs from any static server and from **GitHub Pages** as is.
 
-## What's on the page
+## Run it
 
-The main page is one scroll: the live instrument on top, the article below.
+- **GitHub Pages:** repo → Settings → Pages → *Deploy from a branch* → this branch, `/ (root)`. Done.
+- **Locally:** `python3 -m http.server 8000` in this folder, then open http://localhost:8000.
 
-1. **Country tabs**: Canada · United States · Russia.
-2. **Year slider** with a play button. Triangles mark high-fire years (the top quarter).
-3. **2.5D map**: an equal-area outline of the country, tilted. Drag to rotate or tilt, Shift-drag to pan, double-click or use +/− to zoom, and press "2D" to flatten it. It shows:
-   - fire records for the selected year as **columns**, with **fire-density contour lines**
-   - air measurements as a **haze**. If the air file has no coordinates, the whole country is tinted by the national level.
-   - water sites, which turn **purple when a fire was recorded within 50 km** that year
-4. **Infobox**: the headline value of each subject for the selected year, the change from the previous year, and a sparkline. Click a row to study it in Fig. 1 and Fig. 2.
-5. **Fig. 1 Trend**: Mann–Kendall test plus Sen's slope.
-6. **Fig. 2 Before / after** the slider year: Welch t-test plus Mann–Whitney U.
-7. **Fig. 3 The chain**: Fire → Air → Water, Spearman correlation at lags of 0–3 years. Solid arrows are significant; dashed arrows are not.
-8. **Methods · Data sources · Caveats · Team and AI use.**
+## What is on the page
 
-The **Data archive** (sidebar) has a full article for every file: an adjustable chart, column statistics, key figures, a sortable table and the raw source. It also has country and subject comparison pages, plus **Preview a local file**, which tests a CSV in your browser without uploading it.
+Header (country tabs, *Whole country / Case study* toggle) · year slider with play and fire-year markers ·
+map (globe with 0.5° fire cells, smoke haze, rivers that turn purple near fires, clickable orange case-study
+outline; basin view with 2.5D terrain, contours, 0.1° fires and the water measurement box) · infobox with
+sparklines · Fig. 1 trend (Mann-Kendall + Sen slope) · Fig. 2 before/after a fire year (Welch, Mann-Whitney,
+Cohen's d) · Fig. 3 the chain (Spearman lag links) · Methods / Data / Statistics / Caveats / Team / Credits.
 
-All statistics run in the browser (`assets/stats.js`). They have been checked against SciPy.
+## Modular by design: adding data later
 
-## Adding data
+Everything is driven by files under `data/`; no module knows a country or basin by name (contract rule R10).
 
-Save each file as `data/<country>/<subject>.csv`:
+- **Replace the mock data** with real numbers: put the raw downloads under `pipeline/raw/` (list in
+  `pipeline/README.md`), run the seven pipeline steps, then `python pipeline/export_json.py --scope all` and
+  `python pipeline/validate.py`. `regions.json` gets `"mock": false` and the red MOCK DATA badge disappears.
+- **Add a country or basin:** add an entry to `data/regions.json` (bbox, camera, water bodies, fish metric)
+  and a folder `data/<country>/` (and `data/<country>/<basin>/`) with the same eight file types. The header
+  tabs, map cameras, infobox, figures and pipeline scope table all read `regions.json`.
+- **Add a variable:** extend `VARS` in `js/theme.js` and `VARIABLES` in `pipeline/common.py`; series files
+  accept extra variables (schema `additionalProperties`).
+- **Contract:** every file name, DOM id, state field, data shape and colour is fixed in `CONTRACT.md`; the
+  JSON shapes are enforced by `contract/schemas/*.schema.json` (`python tools/check_contract.py`).
 
-|               | Forest fires                     | Air pollution                     | Water pollution                     |
-|---------------|----------------------------------|-----------------------------------|-------------------------------------|
-| Canada        | `data/canada/forest-fires.csv`   | `data/canada/air-pollution.csv`   | `data/canada/water-pollution.csv`   |
-| United States | `data/us/forest-fires.csv`       | `data/us/air-pollution.csv`       | `data/us/water-pollution.csv`       |
-| Russia        | `data/russia/forest-fires.csv`   | `data/russia/air-pollution.csv`   | `data/russia/water-pollution.csv`   |
-
-A file can have any columns. The site picks them up like this:
-
-- **Time:** a column named like `year` or `date` (`2019`, `2019-07`, `2019-07-14` and `07/14/2019` all work).
-- **Map position:** columns named like `latitude`/`longitude` or `lat`/`lon`. These are optional; without them the data still feeds every chart.
-- **Headline measure:** chosen per subject by column name, e.g. PM2.5 or AOD for air, Kd490 or chlorophyll for water, a count or burned area for fires. For files with one row per fire detection (like NASA FIRMS exports), the measure is the number of detections per year.
-- **Rows that share a year** are combined: totals for counts and areas, averages for concentrations.
-- Commas, semicolons or tabs as separators; `1,234`, `12%`, `NA` and blanks are handled.
-- A missing file shows as "awaiting data"; nothing breaks.
-
-To force a specific column, use another file name, or credit a source, add an entry under `datasets` in `assets/config.js`:
-
-```js
-datasets: {
-  "canada/air-pollution": { metric: "PM2.5", combine: "mean", source: "NASA MAIAC AOD via Giovanni", sourceUrl: "https://giovanni.gsfc.nasa.gov/" }
-}
-```
-
-Team names go under `team` in the same file. To add a fourth link to the chain (for example fishing), there is a commented-out example under `topics`.
-
-**Keep files reasonably small** (up to roughly 20 MB each); the browser reads them whole. For very large FIRMS exports, keep only the columns you need (`latitude,longitude,acq_date,frp`), or pre-filter by confidence.
-
-## Running it
-
-A static site with no build step and no libraries.
-
-- **GitHub Pages:** Settings → Pages → Deploy from branch → choose the branch and `/ (root)`.
-- **Locally:** run `python3 -m http.server 8000` in this folder, then open http://localhost:8000. Opening `index.html` directly from disk will not load data.
-
-## Files
+## Layout
 
 ```
-index.html             page shell
-assets/config.js       countries, subjects, column hints, per-dataset settings, team
-assets/csv.js          CSV reader and column detection
-assets/stats.js        Mann–Kendall, Sen slope, Welch, Mann–Whitney, Spearman lag correlation
-assets/chart.js        SVG line/bar charts
-assets/map.js          2.5D canvas map
-assets/app.js          pages and routing
-assets/style.css       layout and theme (light and dark)
-assets/geo/            country outlines (Natural Earth via world-atlas, ISC licence)
-data/                  your CSV files
+index.html  css/tokens.css  css/layout.css  js/main.js      app shell (slots, tokens, 5-row grid, safe module loader)
+js/store.js  js/data.js  js/theme.js                        state store, cached data API, colours + variable table
+js/ui/header.js  slider.js  infobox.js                      header tabs + toggle, year slider, infobox
+js/charts/fig1-trend.js  fig2-before-after.js  fig3-chain.js figures (Plot, Plot, hand-built SVG)
+js/map/map.js  fires.js  water.js  air.js  legend.js         MapLibre map and its layers
+content/methods.html                                        Methods article (HTML fragment)
+data/regions.json  data/<country>/[<basin>/]{geo,rivers}.geojson series.json stats.json fires/<y> air/<y>
+contract/  CONTRACT.md                                      the primer + JSON schemas + examples
+pipeline/                                                   Python pipeline P0–P7 (see pipeline/README.md)
+tools/make_mock.py  check_stats.py  check_contract.py  mock_geo.json   mock data, independent stats cross-check, schema check
 ```
+
+## Checks
+
+```bash
+python tools/make_mock.py          # regenerate mock data (validates at the end)
+python pipeline/validate.py        # schemas, size budgets, 168 months / 14 years
+python tools/check_stats.py        # recompute every stats.json value with scipy + pymannkendall
+python tools/check_contract.py     # contract examples against the schemas
+```
+
+Mock data note: `data/` currently holds reproducible placeholder data (`tools/make_mock.py`, fixed seed,
+Natural Earth outlines). Never submit while the MOCK DATA badge shows.
