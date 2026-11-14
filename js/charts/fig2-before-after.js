@@ -1,5 +1,6 @@
 // js/charts/fig2-before-after.js
 // Purpose: Fig. 2 (#fig2) — before / after bars for the focused variable around a fire year.
+//          Optimized to skip Plot SVG rebuilds when year changes resolve to the same event.
 import * as Plot from 'https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6/+esm';
 
 const STYLE = `
@@ -64,8 +65,11 @@ export async function mount(el, ctx) {
   cap.className = 'f2-cap';
   root.append(head, plotBox, stats, cap);
   el.appendChild(root);
+
   let current = null;
   let token = 0;
+  let lastRenderKey = null;
+  let lastWidth = 0;
 
   function pickEntries(state) {
     const { meta, stats: st } = current;
@@ -77,14 +81,19 @@ export async function mount(el, ctx) {
     return entries.sort((a, b) => a.event - b.event);
   }
 
-  function draw(state) {
+  function draw(state, force = false) {
     if (!current) return;
     const { meta, series } = current;
-    plotBox.innerHTML = '';
-    stats.innerHTML = '';
-    chips.innerHTML = '';
-    cap.textContent = '';
+    const width = Math.max(260, plotBox.clientWidth || el.clientWidth - 40 || 420);
+
     if (data.isWaterVar(state.focus) && meta.kind !== 'basin') {
+      const key = `${meta.path}|water-gate`;
+      if (!force && key === lastRenderKey) return;
+      lastRenderKey = key;
+      plotBox.innerHTML = '';
+      stats.innerHTML = '';
+      chips.innerHTML = '';
+      cap.textContent = '';
       const p = theme.placeholder(plotBox, 'Water is measured in the case-study basin. ');
       const a = document.createElement('a');
       a.href = '#';
@@ -94,14 +103,31 @@ export async function mount(el, ctx) {
       p.appendChild(a);
       return;
     }
+
     const entries = pickEntries(state);
     if (!entries.length) {
+      const key = `${meta.path}|empty`;
+      if (!force && key === lastRenderKey) return;
+      lastRenderKey = key;
+      plotBox.innerHTML = '';
+      stats.innerHTML = '';
+      chips.innerHTML = '';
       theme.placeholder(plotBox);
       cap.textContent = `Fig. 2 — no before / after test available for ${meta.name}.`;
       return;
     }
+
     const upTo = entries.filter((e) => e.event <= state.year);
     const entry = upTo.length ? upTo[upTo.length - 1] : entries[0];
+    const renderKey = `${meta.path}|${entry.variable}|${entry.event}|${width}`;
+    if (!force && renderKey === lastRenderKey) return;
+    lastRenderKey = renderKey;
+    lastWidth = width;
+
+    plotBox.innerHTML = '';
+    stats.innerHTML = '';
+    chips.innerHTML = '';
+
     for (const e of entries) {
       const b = document.createElement('button');
       b.type = 'button';
@@ -111,6 +137,7 @@ export async function mount(el, ctx) {
       b.addEventListener('click', () => store.set({ year: e.event }));
       chips.appendChild(b);
     }
+
     const v = VARS[entry.variable];
     const unit = theme.unitFor(entry.variable, meta);
     const wb = data.isWaterVar(entry.variable) ? entry.waterBody : undefined;
@@ -135,7 +162,6 @@ export async function mount(el, ctx) {
       { x1: 0.2, x2: 0.8, y: entry.mean_before, side: 'before' },
       { x1: 1.2, x2: 1.8, y: entry.mean_after, side: 'after' },
     ];
-    const width = Math.max(260, plotBox.clientWidth || el.clientWidth - 40 || 420);
     const color = (d) => (d.side === 'after' ? v.color : COLORS.muted);
     const svg = Plot.plot({
       width, height: 248, marginLeft: 52, marginRight: 20, marginTop: 30, marginBottom: 28,
@@ -162,16 +188,19 @@ export async function mount(el, ctx) {
     const scope = await data.getScope(state);
     if (my !== token) return;
     current = scope && scope.meta ? scope : null;
+    lastRenderKey = null;
     if (!current) {
       theme.placeholder(plotBox);
       return;
     }
-    draw(state);
+    draw(state, true);
   }
 
   let resizeTimer = null;
   if (typeof ResizeObserver !== 'undefined') {
     new ResizeObserver(() => {
+      const nextW = Math.max(260, plotBox.clientWidth || el.clientWidth - 40 || 420);
+      if (nextW === lastWidth) return;
       clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => draw(store.get()), 150);
     }).observe(el);

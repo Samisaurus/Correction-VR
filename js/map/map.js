@@ -1,6 +1,6 @@
 // js/map/map.js
-// Purpose: optimized MapLibre map (#map) with smooth Chaikin-curved country/basin borders,
-//          distinct colors for Canada/USA/Russia, refined topographic contours, and smooth terrain.
+// Purpose: optimized MapLibre map (#map) with accurate 1:50m country/basin borders,
+//          distinct colors for Canada/USA/Russia, topographic contours, terrain, and coalesced updates.
 
 const STYLE_URL = 'https://tiles.openfreemap.org/styles/positron';
 const DEM_URL = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
@@ -41,44 +41,6 @@ function injectStyle() {
   document.head.appendChild(s);
 }
 
-// ---- Smooth jagged/blocky polygon borders via Chaikin corner-cutting --------------------------
-
-function smoothClosedRing(ring, iterations = 2) {
-  if (!Array.isArray(ring) || ring.length < 4) return ring;
-  let pts = ring.slice(0, -1);
-  for (let it = 0; it < iterations; it += 1) {
-    const next = [];
-    const n = pts.length;
-    for (let i = 0; i < n; i += 1) {
-      const a = pts[i];
-      const b = pts[(i + 1) % n];
-      // Preserve antimeridian jumps (-180 / +180) without cutting across the globe
-      if (Math.abs(a[0] - b[0]) > 180) {
-        next.push(a, b);
-      } else {
-        next.push(
-          [a[0] * 0.75 + b[0] * 0.25, a[1] * 0.75 + b[1] * 0.25],
-          [a[0] * 0.25 + b[0] * 0.75, a[1] * 0.25 + b[1] * 0.75],
-        );
-      }
-    }
-    pts = next;
-  }
-  if (pts.length) pts.push(pts[0]);
-  return pts;
-}
-
-function smoothGeometry(geom, iterations = 2) {
-  if (!geom) return geom;
-  if (geom.type === 'Polygon') {
-    return { ...geom, coordinates: geom.coordinates.map((r) => smoothClosedRing(r, iterations)) };
-  }
-  if (geom.type === 'MultiPolygon') {
-    return { ...geom, coordinates: geom.coordinates.map((poly) => poly.map((r) => smoothClosedRing(r, iterations))) };
-  }
-  return geom;
-}
-
 let dem = null;
 function demSource() {
   if (dem || !window.mlcontour) return dem;
@@ -89,8 +51,14 @@ function demSource() {
 
 function addTerrain(map, COLORS) {
   const d = demSource();
-  map.addSource('map-dem', { type: 'raster-dem', tiles: [d ? d.sharedDemProtocolUrl : DEM_URL], encoding: 'terrarium', tileSize: 256, maxzoom: 12,
-    attribution: 'Terrain: AWS Terrain Tiles' });
+  map.addSource('map-dem', {
+    type: 'raster-dem',
+    tiles: [d ? d.sharedDemProtocolUrl : DEM_URL],
+    encoding: 'terrarium',
+    tileSize: 256,
+    maxzoom: 12,
+    attribution: 'Terrain: AWS Terrain Tiles',
+  });
   map.addLayer({
     id: 'map-hillshade',
     type: 'hillshade',
@@ -153,8 +121,8 @@ function addCountryLayers(map) {
     layout: { 'line-cap': 'round', 'line-join': 'round' },
     paint: {
       'line-color': '#FFFFFF',
-      'line-width': 3.5,
-      'line-opacity': 0.7,
+      'line-width': 2.6,
+      'line-opacity': 0.72,
     },
   });
   map.addLayer({
@@ -164,8 +132,8 @@ function addCountryLayers(map) {
     layout: { 'line-cap': 'round', 'line-join': 'round' },
     paint: {
       'line-color': ['get', 'color'],
-      'line-width': 2.0,
-      'line-opacity': 0.85,
+      'line-width': 1.6,
+      'line-opacity': 0.88,
     },
   });
 }
@@ -185,7 +153,7 @@ function addBasinOutlines(map, COLORS) {
     source: 'map-geo',
     filter: ['==', ['get', 'kind'], 'basin'],
     layout: { 'line-cap': 'round', 'line-join': 'round' },
-    paint: { 'line-color': '#FFFFFF', 'line-width': 3.6, 'line-opacity': 0.75 },
+    paint: { 'line-color': '#FFFFFF', 'line-width': 3.4, 'line-opacity': 0.78 },
   });
   map.addLayer({
     id: 'map-basin-line',
@@ -252,8 +220,8 @@ export async function mount(el, ctx) {
     pitch: cam.pitch,
     bearing: cam.bearing,
     maxPitch: 70,
-    fadeDuration: 150,
-    maxTileCacheSize: 120,
+    fadeDuration: 120,
+    maxTileCacheSize: 150,
     attributionControl: false,
   });
   map.on('error', (e) => console.warn('map:', e && e.error ? e.error.message : e));
@@ -265,7 +233,8 @@ export async function mount(el, ctx) {
   ctx.map = map;
   const layers = [];
   let ready = false;
-  let token = 0;
+  let refreshing = false;
+  let queued = null;
 
   async function loadLayer(path) {
     try {
@@ -283,11 +252,11 @@ export async function mount(el, ctx) {
     map.setPaintProperty('map-countries-fill', 'fill-opacity', basin
       ? 0.035
       : ['case', ['==', ['get', 'id'], active], 0.14, 0.06]);
-    map.setPaintProperty('map-countries-line', 'line-width', ['case', ['==', ['get', 'id'], active], 2.2, 1.15]);
+    map.setPaintProperty('map-countries-line', 'line-width', ['case', ['==', ['get', 'id'], active], 1.85, 1.0]);
     map.setPaintProperty('map-countries-line', 'line-opacity', basin
       ? ['case', ['==', ['get', 'id'], active], 0.55, 0.25]
-      : ['case', ['==', ['get', 'id'], active], 0.92, 0.5]);
-    map.setPaintProperty('map-countries-casing', 'line-width', ['case', ['==', ['get', 'id'], active], 4.2, 2.2]);
+      : ['case', ['==', ['get', 'id'], active], 0.92, 0.48]);
+    map.setPaintProperty('map-countries-casing', 'line-width', ['case', ['==', ['get', 'id'], active], 3.2, 1.8]);
   }
 
   function applyView(state, meta, animate) {
@@ -325,7 +294,7 @@ export async function mount(el, ctx) {
       note.textContent = '';
     }
     const camera = meta ? meta.camera : cam;
-    if (animate) map.flyTo({ ...camera, duration: 950, essential: true });
+    if (animate) map.flyTo({ ...camera, duration: 900, essential: true });
     else map.jumpTo(camera);
   }
 
@@ -338,7 +307,7 @@ export async function mount(el, ctx) {
         if (f.properties && f.properties.kind === 'country') {
           features.push({
             type: 'Feature',
-            geometry: smoothGeometry(f.geometry, 2),
+            geometry: f.geometry,
             properties: { ...f.properties, id: country.id, color },
           });
         }
@@ -349,14 +318,13 @@ export async function mount(el, ctx) {
     }
   }
 
-  async function refresh(state, viewChanged) {
-    const my = ++token;
+  async function runRefresh(state, viewChanged) {
     const [scope, fires, air] = await Promise.all([
       data.getScope(state),
       data.getFires(state, state.year),
       data.getAir(state, state.year),
     ]);
-    if (my !== token || !ready) return;
+    if (!ready) return;
     const meta = scope ? scope.meta : null;
     if (viewChanged) {
       applyView(state, meta, viewChanged !== 'first');
@@ -365,17 +333,20 @@ export async function mount(el, ctx) {
         .filter((f) => f.properties && f.properties.kind === 'basin')
         .map((f) => ({
           ...f,
-          geometry: smoothGeometry(f.geometry, 2),
           properties: meta && meta.basin
             ? { ...f.properties, label: `Case study: ${meta.basin.shortName} — click to zoom` }
             : f.properties,
         }));
       map.getSource('map-geo').setData({ type: 'FeatureCollection', features: basinFeatures });
     }
-    for (const api of layers) {
-      try { api.update(state, { scope, fires, air }); } catch (err) { console.info('map: layer update failed', err && err.message ? err.message : err); }
+    for (let i = 0; i < layers.length; i += 1) {
+      try {
+        layers[i].update(state, { scope, fires, air });
+      } catch (err) {
+        console.info('map: layer update failed', err && err.message ? err.message : err);
+      }
     }
-    // Warm next year quietly while playing so slider playback stays buttery
+    // Warm next year quietly during playback
     const maxY = regions && Array.isArray(regions.years) ? regions.years[1] : 2025;
     if (state.playing && state.year < maxY) {
       data.getFires(state, state.year + 1);
@@ -383,16 +354,42 @@ export async function mount(el, ctx) {
     }
   }
 
+  async function refresh(state, viewChanged) {
+    if (refreshing) {
+      queued = {
+        state,
+        viewChanged: (queued && queued.viewChanged) || viewChanged,
+      };
+      return;
+    }
+    refreshing = true;
+    try {
+      await runRefresh(state, viewChanged);
+      while (queued) {
+        const next = queued;
+        queued = null;
+        await runRefresh(next.state, next.viewChanged);
+      }
+    } finally {
+      refreshing = false;
+    }
+  }
+
   map.on('load', async () => {
+    // Sharpen OpenFreeMap basemap international borders cleanly
+    if (map.getLayer('boundary_2')) {
+      map.setPaintProperty('boundary_2', 'line-color', '#475569');
+      map.setPaintProperty('boundary_2', 'line-opacity', ['interpolate', ['linear'], ['zoom'], 0, 0.55, 4, 0.9]);
+    }
+
     addTerrain(map, COLORS);
     addCountryLayers(map);
     await loadLayer('./air.js');
+    await loadLayer('./fires.js');
     await loadLayer('./water.js');
     addBasinOutlines(map, COLORS);
-    await loadLayer('./fires.js');
     addLabels(map, COLORS);
 
-    // Clickable country colors on the globe + clickable case-study basin
     map.on('click', 'map-basin-fill', () => { if (store.get().view !== 'basin') store.set({ view: 'basin' }); });
     map.on('mouseenter', 'map-basin-fill', () => { if (store.get().view !== 'basin') map.getCanvas().style.cursor = 'pointer'; });
     map.on('mouseleave', 'map-basin-fill', () => { map.getCanvas().style.cursor = ''; });

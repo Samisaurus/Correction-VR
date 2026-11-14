@@ -1,5 +1,6 @@
 // js/charts/fig1-trend.js
 // Purpose: Fig. 1 (#fig1) — annual line + monthly trace + thick Sen trend line for the focused variable.
+//          Optimized to move only the year-marker SVG line during slider scrubbing/playback.
 import * as Plot from 'https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6/+esm';
 
 const STYLE = `
@@ -25,6 +26,7 @@ const STYLE = `
 .f1-seg button[data-group="fish"][aria-pressed="true"] { background: var(--c-fish); }
 .f1-plot { margin-top: 6px; min-height: 230px; }
 .f1-plot svg { display: block; max-width: 100%; animation: emberFadeIn 190ms var(--ease-out); }
+.f1-year-rule { pointer-events: none; transition: x1 160ms var(--ease-out), x2 160ms var(--ease-out); }
 .f1-stats { font-family: var(--f-mono); font-size: 12px; color: var(--c-ink); margin: 6px 0 0; line-height: 1.55; }
 .f1-stats strong { font-weight: 600; color: var(--c-ink); }
 .f1-stats .f1-muted { color: var(--c-muted); }
@@ -33,6 +35,12 @@ const STYLE = `
 .f1-link { color: var(--c-link); font-weight: 600; }
 `;
 const DAY = (y, m = 0, d = 1) => new Date(Date.UTC(y, m, d));
+const NS = 'http://www.w3.org/2000/svg';
+const PLOT_H = 248;
+const MARGIN_L = 64;
+const MARGIN_R = 20;
+const MARGIN_T = 30;
+const MARGIN_B = 28;
 
 function injectStyle() {
   if (document.querySelector('style[data-module="f1"]')) return;
@@ -98,6 +106,19 @@ export async function mount(el, ctx) {
 
   let current = null;
   let token = 0;
+  let lastWidth = 0;
+  let yearRuleState = null;
+
+  function moveYearRule(year) {
+    if (!yearRuleState) return;
+    const { line, xForYear } = yearRuleState;
+    const px = xForYear(Number(year));
+    if (Number.isFinite(px)) {
+      const s = px.toFixed(1);
+      line.setAttribute('x1', s);
+      line.setAttribute('x2', s);
+    }
+  }
 
   function draw(state) {
     if (!current) return;
@@ -110,6 +131,8 @@ export async function mount(el, ctx) {
     cap.innerHTML = `<strong>Fig. 1</strong> — ${v.label}, ${meta.name}, ${y0}–${y1}. Thick line: Sen slope.`;
     plotBox.innerHTML = '';
     stats.innerHTML = '';
+    yearRuleState = null;
+
     if (data.isWaterVar(focus) && meta.kind !== 'basin') {
       const p = theme.placeholder(plotBox, '');
       p.textContent = 'Water variables are measured in the case-study basin. ';
@@ -121,6 +144,7 @@ export async function mount(el, ctx) {
       p.appendChild(a);
       return;
     }
+
     const wb = data.isWaterVar(focus) ? meta.primaryWaterBody : undefined;
     const annual = data.annualSeries(series, focus, wb).map((d) => ({ ...d, date: DAY(d.year, 6, 1) }));
     const monthly = data.monthlySeries(series, focus, wb).filter((d) => d.value !== null);
@@ -128,6 +152,7 @@ export async function mount(el, ctx) {
       theme.placeholder(plotBox);
       return;
     }
+
     const trends = (st && st.trends ? st.trends : []).filter((t) => t.variable === focus && (wb ? t.waterBody === wb : !t.waterBody));
     const ta = trends.find((t) => t.basis === 'annual');
     const tm = trends.find((t) => t.basis === 'monthly');
@@ -135,6 +160,7 @@ export async function mount(el, ctx) {
       ? annual.map((d) => ({ date: d.date, value: ta.sen_intercept + ta.sen_slope * (d.year - y0) }))
       : [];
     const width = Math.max(260, plotBox.clientWidth || el.clientWidth - 40 || 420);
+    lastWidth = width;
     const step = width < 520 ? 2 : 1;
     const ticks = [];
     for (let y = y0; y <= y1; y += step) ticks.push(DAY(y));
@@ -152,17 +178,44 @@ export async function mount(el, ctx) {
       Plot.line(annual, { x: 'date', y: 'value', stroke: COLORS.ink, strokeWidth: 1.5 }),
       Plot.dot(annual.filter((d) => d.value !== null), { x: 'date', y: 'value', r: 2.5, fill: COLORS.ink,
         title: (d) => `${d.year}: ${theme.fmt(d.value, focus)} ${unit}` }),
-      Plot.ruleX([DAY(state.year, 6, 1)], { stroke: COLORS.year, strokeWidth: 1.5, strokeDasharray: '4 3' }),
       events.length ? Plot.dot(events, { x: 'date', frameAnchor: 'bottom', dy: -3, symbol: 'triangle', r: 4, fill: COLORS.fire,
         title: (d) => `Major fire year ${d.year}` }) : null,
     ].filter(Boolean);
+
     const svg = Plot.plot({
-      width, height: 248, marginLeft: 64, marginRight: 20, marginTop: 30, marginBottom: 28,
+      width,
+      height: PLOT_H,
+      marginLeft: MARGIN_L,
+      marginRight: MARGIN_R,
+      marginTop: MARGIN_T,
+      marginBottom: MARGIN_B,
       style: { fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: '11px', color: COLORS.muted, background: 'transparent', overflow: 'visible' },
       x: { domain: [DAY(y0), DAY(y1 + 1)], ticks, tickFormat: '%Y', label: null },
       y: { label: `${v.short} (${unit})`, labelAnchor: 'top', nice: true, zero: !isWater },
       marks,
     });
+
+    const xScale = typeof svg.scale === 'function' ? svg.scale('x') : null;
+    const xStart = DAY(y0).getTime();
+    const xEnd = DAY(y1 + 1).getTime();
+    const xForYear = (yr) => {
+      const dt = DAY(yr, 6, 1);
+      if (xScale && typeof xScale.apply === 'function') return xScale.apply(dt);
+      const t = (dt.getTime() - xStart) / Math.max(1, xEnd - xStart);
+      return MARGIN_L + t * (width - MARGIN_L - MARGIN_R);
+    };
+
+    const ruleLine = document.createElementNS(NS, 'line');
+    ruleLine.setAttribute('class', 'f1-year-rule');
+    ruleLine.setAttribute('y1', String(MARGIN_T));
+    ruleLine.setAttribute('y2', String(PLOT_H - MARGIN_B));
+    ruleLine.setAttribute('stroke', COLORS.year);
+    ruleLine.setAttribute('stroke-width', '1.75');
+    ruleLine.setAttribute('stroke-dasharray', '4 3');
+    svg.appendChild(ruleLine);
+    yearRuleState = { line: ruleLine, xForYear };
+    moveYearRule(state.year);
+
     plotBox.appendChild(svg);
     const lines = [trendText(ta, unit, theme), trendText(tm, unit, theme)].filter(Boolean);
     if (!lines.length) lines.push('No trend test for this selection');
@@ -175,6 +228,7 @@ export async function mount(el, ctx) {
     if (my !== token) return;
     current = scope && scope.meta ? scope : null;
     if (!current) {
+      yearRuleState = null;
       theme.placeholder(plotBox);
       return;
     }
@@ -184,13 +238,19 @@ export async function mount(el, ctx) {
   let resizeTimer = null;
   if (typeof ResizeObserver !== 'undefined') {
     new ResizeObserver(() => {
+      const nextW = Math.max(260, plotBox.clientWidth || el.clientWidth - 40 || 420);
+      if (nextW === lastWidth) return;
       clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => draw(store.get()), 150);
     }).observe(el);
   }
   store.subscribe((state, prev) => {
     if (state.countryId !== prev.countryId || state.view !== prev.view) build(state);
-    else if (state.focus !== prev.focus || state.year !== prev.year) draw(state);
+    else if (state.focus !== prev.focus) draw(state);
+    else if (state.year !== prev.year) {
+      if (yearRuleState) moveYearRule(state.year);
+      else draw(state);
+    }
   });
   await build(store.get());
 }

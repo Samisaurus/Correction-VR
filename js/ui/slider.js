@@ -184,17 +184,30 @@ export async function mount(el, ctx) {
     }
   }
 
+  let lastYear = null;
+  let lastPlaying = null;
+
   function render(state) {
     const year = Math.min(max, Math.max(min, Number(state.year) || min));
-    input.value = String(year);
-    input.setAttribute('aria-valuetext', `${year}${state.playing ? ', playing' : ''}`);
-    yearEl.textContent = String(year);
-    const pct = max > min ? (year - min) / (max - min) : 0;
-    fill.style.width = `calc((100% - 16px) * ${pct})`;
-    for (const [y, l] of labelEls) l.classList.toggle('is-selected', y === year);
-    play.innerHTML = state.playing ? PAUSE_ICON : PLAY_ICON;
-    play.setAttribute('aria-label', state.playing ? 'Pause' : 'Play through the years');
-    play.setAttribute('aria-pressed', String(!!state.playing));
+    const playing = !!state.playing;
+    if (year !== lastYear || playing !== lastPlaying) {
+      input.setAttribute('aria-valuetext', `${year}${playing ? ', playing' : ''}`);
+    }
+    if (year !== lastYear) {
+      input.value = String(year);
+      yearEl.textContent = String(year);
+      const pct = max > min ? (year - min) / (max - min) : 0;
+      fill.style.width = `calc((100% - 16px) * ${pct})`;
+      if (lastYear !== null && labelEls.has(lastYear)) labelEls.get(lastYear).classList.remove('is-selected');
+      if (labelEls.has(year)) labelEls.get(year).classList.add('is-selected');
+      lastYear = year;
+    }
+    if (playing !== lastPlaying) {
+      play.innerHTML = playing ? PAUSE_ICON : PLAY_ICON;
+      play.setAttribute('aria-label', playing ? 'Pause' : 'Play through the years');
+      play.setAttribute('aria-pressed', String(playing));
+      lastPlaying = playing;
+    }
   }
 
   const unsubscribe = store.subscribe((state, prev) => {

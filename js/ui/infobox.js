@@ -5,11 +5,9 @@
 const STYLE = `
 .ibx-box { border: 1px solid var(--c-edge); background: var(--c-paper); border-radius: 2px; font-size: 14px; }
 .ibx-caption { position: relative; padding: 10px 14px 8px; border-bottom: 1px solid var(--c-edge); }
-.ibx-name { display: block; font-family: var(--f-serif); font-size: 18px; font-weight: 700; line-height: 1.25; padding-right: 92px; color: var(--c-ink); }
+.ibx-name { display: block; font-family: var(--f-serif); font-size: 18px; font-weight: 700; line-height: 1.25; color: var(--c-ink); }
 .ibx-sub { display: block; margin-top: 3px; font-family: var(--f-mono); font-size: 12px; color: var(--c-muted); }
 .ibx-sub strong { color: var(--c-ink); font-weight: 600; }
-.ibx-badge { position: absolute; top: 10px; right: 12px; padding: 2px 7px; border: 1px solid var(--c-fire); border-radius: 6px;
-  color: var(--c-fire); font-family: var(--f-mono); font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; background: rgba(213, 94, 0, 0.05); }
 .ibx-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .ibx-row[data-group="fire"] { --ibx-color: var(--c-fire); }
 .ibx-row[data-group="air"] { --ibx-color: var(--c-smoke); }
@@ -58,6 +56,7 @@ const STYLE = `
   .ibx-row th, .ibx-row td { padding: 6px 6px; }
 }
 `;
+const NS = 'http://www.w3.org/2000/svg';
 
 function injectStyle() {
   if (document.querySelector('style[data-module="ibx"]')) return;
@@ -73,44 +72,44 @@ function hasAny(series, varId) {
   return (v.annual || []).some((d) => d[1] !== null) || (v.monthly || []).some((d) => d[1] !== null);
 }
 
-function median(values) {
-  const v = values.filter((x) => x !== null && Number.isFinite(x)).sort((a, b) => a - b);
-  if (!v.length) return null;
-  const m = v.length >> 1;
-  return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
-}
-
-function sparkline(points, year) {
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+function buildSparkline(points) {
+  const svg = document.createElementNS(NS, 'svg');
   svg.setAttribute('viewBox', '0 0 72 18');
   svg.setAttribute('aria-hidden', 'true');
   const vals = points.map((p) => p.value).filter((v) => v !== null);
-  if (vals.length < 2) return svg;
+  if (vals.length < 2) return { svg, coordsByYear: new Map(), dot: null };
   const lo = Math.min(...vals);
   const hi = Math.max(...vals);
   const n = points.length;
   const x = (i) => 1 + (70 * i) / Math.max(1, n - 1);
   const y = (v) => (hi === lo ? 9 : 16 - (14 * (v - lo)) / (hi - lo));
+  const coordsByYear = new Map();
   let run = [];
   const flush = () => {
     if (run.length > 1) {
-      const pl = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+      const pl = document.createElementNS(NS, 'polyline');
       pl.setAttribute('points', run.join(' '));
       svg.appendChild(pl);
     }
     run = [];
   };
-  points.forEach((p, i) => (p.value === null ? flush() : run.push(`${x(i).toFixed(1)},${y(p.value).toFixed(1)}`)));
-  flush();
-  const sel = points.findIndex((p) => p.year === year && p.value !== null);
-  if (sel >= 0) {
-    const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    c.setAttribute('cx', x(sel).toFixed(1));
-    c.setAttribute('cy', y(points[sel].value).toFixed(1));
-    c.setAttribute('r', '2.5');
-    svg.appendChild(c);
+  for (let i = 0; i < n; i += 1) {
+    const p = points[i];
+    if (p.value === null) {
+      flush();
+    } else {
+      const cx = x(i).toFixed(1);
+      const cy = y(p.value).toFixed(1);
+      coordsByYear.set(p.year, [cx, cy]);
+      run.push(`${cx},${cy}`);
+    }
   }
-  return svg;
+  flush();
+  const dot = document.createElementNS(NS, 'circle');
+  dot.setAttribute('r', '2.5');
+  dot.style.display = 'none';
+  svg.appendChild(dot);
+  return { svg, coordsByYear, dot };
 }
 
 export async function mount(el, ctx) {
@@ -153,14 +152,13 @@ export async function mount(el, ctx) {
     name.textContent = meta.name;
     const sub = document.createElement('span');
     sub.className = 'ibx-sub';
+    const subLead = document.createElement('strong');
+    subLead.textContent = meta.kind === 'basin' ? 'Case study' : 'Whole country';
+    const subMid = document.createTextNode(meta.kind === 'basin' ? ` in ${country ? country.shortName : meta.countryId} · ` : ' · ');
+    const subYear = document.createElement('strong');
+    sub.append(subLead, subMid, subYear);
     cap.append(name, sub);
-    if (regions.mock === true) {
-      const badge = document.createElement('span');
-      badge.className = 'ibx-badge';
-      badge.textContent = 'MOCK DATA';
-      badge.title = 'Placeholder data from tools/make_mock.py — not real measurements';
-      cap.appendChild(badge);
-    }
+
     const table = document.createElement('table');
     table.className = 'ibx-table';
     const tbody = document.createElement('tbody');
@@ -199,10 +197,27 @@ export async function mount(el, ctx) {
         s.textContent = spec.sub;
         th.appendChild(s);
       }
+
       const tdVal = document.createElement('td');
       tdVal.className = 'ibx-value';
+      const numEl = document.createElement('span');
+      numEl.className = 'ibx-num';
+      const unitEl = document.createElement('span');
+      unitEl.className = 'ibx-unit';
+      unitEl.textContent = theme.unitFor(spec.id, meta);
+      const deltaEl = document.createElement('span');
+      deltaEl.className = 'ibx-delta';
+      const deltaValEl = document.createElement('strong');
+      const deltaSuffixEl = document.createTextNode(` vs ${y0}–${y1} median`);
+      deltaEl.append(deltaValEl, deltaSuffixEl);
+      tdVal.append(numEl, unitEl, deltaEl);
+
       const tdSpark = document.createElement('td');
       tdSpark.className = 'ibx-spark';
+      const points = data.annualSeries(scope.series, spec.id, spec.wb);
+      const spark = buildSparkline(points);
+      tdSpark.appendChild(spark.svg);
+
       tr.append(th, tdVal, tdSpark);
       const focus = () => store.set({ focus: spec.id });
       tr.addEventListener('click', focus);
@@ -213,7 +228,8 @@ export async function mount(el, ctx) {
         }
       });
       tbody.appendChild(tr);
-      return { spec, tr, tdVal, tdSpark, points: data.annualSeries(scope.series, spec.id, spec.wb) };
+      const med = data.annualMedian(scope.series, spec.id, spec.wb);
+      return { spec, tr, numEl, unitEl, deltaValEl, spark, med };
     });
     table.appendChild(tbody);
     const foot = document.createElement('div');
@@ -221,46 +237,40 @@ export async function mount(el, ctx) {
     foot.innerHTML = '<strong>Sources:</strong> NASA FIRMS (VIIRS), MERRA-2, MODIS-Aqua · DFO, NOAA, FAO';
     box.append(cap, table, foot);
     el.appendChild(box);
-    current = { scope, rows, sub, countryShort: country ? country.shortName : meta.countryId };
+    current = { scope, rows, subYear };
     update(state);
   }
 
   function update(state) {
     if (!current) return;
-    const { scope, rows, sub, countryShort } = current;
-    const { meta } = scope;
-    sub.innerHTML = meta.kind === 'basin'
-      ? `<strong>Case study</strong> in ${countryShort} · <strong>${state.year}</strong>`
-      : `<strong>Whole country</strong> · <strong>${state.year}</strong>`;
-    for (const row of rows) {
+    const { scope, rows, subYear } = current;
+    const yr = Number(state.year);
+    subYear.textContent = String(yr);
+    for (let i = 0; i < rows.length; i += 1) {
+      const row = rows[i];
       if (row.spec.link) continue;
-      const { spec, tr, tdVal, tdSpark, points } = row;
+      const { spec, tr, numEl, unitEl, deltaValEl, spark, med } = row;
       tr.classList.toggle('is-focus', state.focus === spec.id);
-      const value = data.annualValue(scope.series, spec.id, state.year, spec.wb);
-      tdVal.innerHTML = '';
-      const num = document.createElement('span');
-      num.className = 'ibx-num';
-      num.textContent = theme.fmt(value, spec.id);
-      tdVal.appendChild(num);
-      if (value !== null) {
-        const unit = document.createElement('span');
-        unit.className = 'ibx-unit';
-        unit.textContent = theme.unitFor(spec.id, meta);
-        tdVal.appendChild(unit);
-      }
-      const delta = document.createElement('span');
-      delta.className = 'ibx-delta';
-      const med = median(points.map((p) => p.value));
+      const value = data.annualValue(scope.series, spec.id, yr, spec.wb);
+      numEl.textContent = theme.fmt(value, spec.id);
+      unitEl.hidden = value === null;
       if (value !== null && med !== null && med !== 0) {
         const pct = ((value - med) / Math.abs(med)) * 100;
         const sign = pct >= 0 ? '+' : '−';
-        delta.innerHTML = `<strong>${sign}${Math.abs(pct).toFixed(0)}%</strong> vs ${y0}–${y1} median`;
+        deltaValEl.textContent = `${sign}${Math.abs(pct).toFixed(0)}%`;
       } else {
-        delta.textContent = `— vs ${y0}–${y1} median`;
+        deltaValEl.textContent = '—';
       }
-      tdVal.appendChild(delta);
-      tdSpark.innerHTML = '';
-      tdSpark.appendChild(sparkline(points, state.year));
+      if (spark.dot) {
+        const pt = spark.coordsByYear.get(yr);
+        if (pt) {
+          spark.dot.setAttribute('cx', pt[0]);
+          spark.dot.setAttribute('cy', pt[1]);
+          spark.dot.style.display = '';
+        } else {
+          spark.dot.style.display = 'none';
+        }
+      }
     }
   }
 

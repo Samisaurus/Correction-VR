@@ -362,10 +362,32 @@ export async function getScope(state) {
   return cache.get(key);
 }
 
-/** Load geo.geojson for all configured countries (so all 3 countries can be coloured on the map). */
+/** Load accurate 50m country borders (fallback to per-country geo.geojson if unavailable). */
 export async function getAllCountriesGeo() {
   const regions = await getRegions();
   if (!regions || !Array.isArray(regions.countries)) return [];
+  const bordersFc = await fetchJson('./country-borders.geojson');
+  if (bordersFc && Array.isArray(bordersFc.features) && bordersFc.features.length) {
+    const byId = new Map();
+    for (const f of bordersFc.features) {
+      const id = f && f.properties && f.properties.id;
+      if (id) byId.set(id, f);
+    }
+    const accurate = regions.countries
+      .map((c) => {
+        const feat = byId.get(c.id);
+        if (!feat) return null;
+        return {
+          country: c,
+          geo: {
+            type: 'FeatureCollection',
+            features: [{ ...feat, properties: { ...feat.properties, kind: 'country' } }],
+          },
+        };
+      })
+      .filter(Boolean);
+    if (accurate.length === regions.countries.length) return accurate;
+  }
   const list = await Promise.all(regions.countries.map(async (c) => {
     const geo = await fetchJson(`${BASE}${c.id}/geo.geojson`);
     return { country: c, geo };
@@ -416,22 +438,65 @@ function num(v) {
   return v === null || v === undefined || !Number.isFinite(Number(v)) ? null : Number(v);
 }
 
-export function annualSeries(series, varId, waterBodyId) {
+const seriesIndexCache = new WeakMap();
+
+function getIndexedVariable(series, varId, waterBodyId) {
   const v = pickVariable(series, varId, waterBodyId);
-  if (!v || !Array.isArray(v.annual)) return [];
-  return v.annual.map(([year, value]) => ({ year: Number(year), value: num(value) }));
+  if (!v) return null;
+  let perSeries = seriesIndexCache.get(series);
+  if (!perSeries) {
+    perSeries = new Map();
+    seriesIndexCache.set(series, perSeries);
+  }
+  const key = `${waterBodyId || ''}:${varId}`;
+  let entry = perSeries.get(key);
+  if (entry) return entry;
+
+  const annual = Array.isArray(v.annual)
+    ? v.annual.map(([year, value]) => ({ year: Number(year), value: num(value) }))
+    : [];
+  const annualMap = new Map();
+  const valid = [];
+  for (let i = 0; i < annual.length; i += 1) {
+    annualMap.set(annual[i].year, annual[i].value);
+    if (annual[i].value !== null) valid.push(annual[i].value);
+  }
+  valid.sort((a, b) => a - b);
+  let median = null;
+  if (valid.length) {
+    const mid = valid.length >> 1;
+    median = valid.length % 2 ? valid[mid] : (valid[mid - 1] + valid[mid]) / 2;
+  }
+  const monthly = Array.isArray(v.monthly)
+    ? v.monthly.map(([month, value]) => {
+      const [y, m] = String(month).split('-').map(Number);
+      return { date: new Date(Date.UTC(y, (m || 1) - 1, 1)), month: String(month), value: num(value) };
+    })
+    : [];
+
+  entry = { annual, annualMap, monthly, median };
+  perSeries.set(key, entry);
+  return entry;
+}
+
+export function annualSeries(series, varId, waterBodyId) {
+  const entry = getIndexedVariable(series, varId, waterBodyId);
+  return entry ? entry.annual : [];
 }
 
 export function monthlySeries(series, varId, waterBodyId) {
-  const v = pickVariable(series, varId, waterBodyId);
-  if (!v || !Array.isArray(v.monthly)) return [];
-  return v.monthly.map(([month, value]) => {
-    const [y, m] = String(month).split('-').map(Number);
-    return { date: new Date(Date.UTC(y, (m || 1) - 1, 1)), month: String(month), value: num(value) };
-  });
+  const entry = getIndexedVariable(series, varId, waterBodyId);
+  return entry ? entry.monthly : [];
 }
 
 export function annualValue(series, varId, year, waterBodyId) {
-  const row = annualSeries(series, varId, waterBodyId).find((d) => d.year === Number(year));
-  return row ? row.value : null;
+  const entry = getIndexedVariable(series, varId, waterBodyId);
+  if (!entry) return null;
+  const val = entry.annualMap.get(Number(year));
+  return val === undefined ? null : val;
+}
+
+export function annualMedian(series, varId, waterBodyId) {
+  const entry = getIndexedVariable(series, varId, waterBodyId);
+  return entry ? entry.median : null;
 }

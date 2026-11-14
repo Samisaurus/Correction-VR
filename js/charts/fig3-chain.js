@@ -1,5 +1,6 @@
 // js/charts/fig3-chain.js
 // Purpose: Fig. 3 (#fig3) — hand-built SVG chain Fire -> Air -> Water -> Fish with the selected year's values.
+//          Optimized to build SVG geometry once per scope and patch node values/focus in-place.
 
 const STYLE = `
 .f3-root { padding: 10px 12px 8px; }
@@ -85,19 +86,23 @@ export async function mount(el, ctx) {
   cap.className = 'f3-cap';
   root.append(title, svg, text, cap);
   el.appendChild(root);
+
   let current = null;
   let token = 0;
+  let nodeRefs = [];
 
-  function draw(state) {
-    if (!current) return;
-    const { meta, series, stats } = current;
+  function drawStructure(scope, state) {
+    const { meta, stats } = scope;
     const basin = meta.kind === 'basin';
     const varOf = { fire: 'fire_frp', air: 'aod', water: 'kd490', fish: meta.fishMetric };
     const links = stats && Array.isArray(stats.links) ? stats.links : [];
     const find = (a, b) => links.find((l) => l.from === a && l.to === b) || null;
     const chain = [find('fire_frp', 'aod'), find('aod', 'kd490'), find('kd490', meta.fishMetric)];
     const arc = find('fire_frp', meta.fishMetric);
+
     svg.innerHTML = '';
+    nodeRefs = [];
+
     const defs = svgEl('defs');
     for (const g of NODES) {
       const m = svgEl('marker', { id: `f3-arrow-${g}`, viewBox: '0 0 10 10', refX: '9', refY: '5', markerWidth: '7', markerHeight: '7', orient: 'auto-start-reverse' });
@@ -108,13 +113,19 @@ export async function mount(el, ctx) {
     grey.appendChild(svgEl('path', { d: 'M0 0L10 5L0 10z', fill: COLORS.rule }));
     defs.appendChild(grey);
     svg.appendChild(defs);
+
     const cx = [90, 270, 450, 630];
     const cy = 92;
     const R = 40;
     const drawArrow = (d, l, target, labelXY) => {
       const sig = l && l.rho !== null && l.p_adj !== null && l.p_adj < 0.05;
-      const p = svgEl('path', { class: 'f3-arrow', d, stroke: sig ? TOKEN[target] : COLORS.rule,
-        'stroke-dasharray': sig ? 'none' : '6 4', 'marker-end': `url(#f3-arrow-${sig ? target : 'grey'})` });
+      const p = svgEl('path', {
+        class: 'f3-arrow',
+        d,
+        stroke: sig ? TOKEN[target] : COLORS.rule,
+        'stroke-dasharray': sig ? 'none' : '6 4',
+        'marker-end': `url(#f3-arrow-${sig ? target : 'grey'})`,
+      });
       svg.appendChild(p);
       if (l) {
         const [l1, l2] = linkLabel(l, theme);
@@ -122,6 +133,7 @@ export async function mount(el, ctx) {
         svg.appendChild(svgEl('text', { class: 'f3-label', x: labelXY[0], y: labelXY[1] + 13 }, l2));
       }
     };
+
     for (let i = 0; i < 3; i += 1) {
       const l = chain[i];
       const missing = !basin && i > 0;
@@ -132,33 +144,54 @@ export async function mount(el, ctx) {
       const ay = cy + R + 30;
       drawArrow(`M${cx[0]} ${ay} C ${cx[0] + 60} ${ay + 70}, ${cx[3] - 60} ${ay + 70}, ${cx[3]} ${ay + 2}`, arc, 'fish', [360, ay + 64]);
     }
+
     for (let i = 0; i < 4; i += 1) {
       const g = NODES[i];
       const varId = varOf[g];
       const v = VARS[varId];
       const unavailable = g === 'water' && !basin;
-      const node = svgEl('g', { class: `f3-node${state.focus === varId ? ' is-focus' : ''}${unavailable ? ' is-missing' : ''}`, tabindex: '0', role: 'button' });
+      const node = svgEl('g', { class: `f3-node${unavailable ? ' is-missing' : ''}`, tabindex: '0', role: 'button' });
       node.appendChild(svgEl('circle', { cx: cx[i], cy, r: R, stroke: TOKEN[g] }));
       node.appendChild(svgEl('text', { class: 'f3-name', x: cx[i], y: cy - 4 }, v ? v.short : g));
+
       if (unavailable) {
         node.appendChild(svgEl('text', { class: 'f3-link', x: cx[i], y: cy + 12 }, 'basin only'));
         const hint = svgEl('text', { class: 'f3-link', x: cx[i], y: cy + R + 18 }, 'Measured in the case-study basin →');
         hint.addEventListener('click', () => store.set({ view: 'basin' }));
         svg.appendChild(hint);
         node.addEventListener('click', () => store.set({ view: 'basin' }));
+        nodeRefs.push({ node, varId, unavailable: true });
       } else {
-        const value = data.annualValue(series, varId, state.year, g === 'water' ? meta.primaryWaterBody : undefined);
-        node.appendChild(svgEl('text', { class: 'f3-value', x: cx[i], y: cy + 13 }, theme.fmt(value, varId)));
-        node.appendChild(svgEl('text', { class: 'f3-unit', x: cx[i], y: cy + R + 16 }, `${state.year} · ${theme.unitFor(varId, meta)}`));
+        const valEl = svgEl('text', { class: 'f3-value', x: cx[i], y: cy + 13 }, '—');
+        const unitStr = theme.unitFor(varId, meta);
+        const unitEl = svgEl('text', { class: 'f3-unit', x: cx[i], y: cy + R + 16 }, `${state.year} · ${unitStr}`);
+        node.appendChild(valEl);
+        node.appendChild(unitEl);
         node.addEventListener('click', () => store.set({ focus: varId }));
+        nodeRefs.push({ node, varId, group: g, unavailable: false, valEl, unitEl, unitStr });
       }
       node.addEventListener('keydown', (ev) => {
         if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); node.dispatchEvent(new Event('click')); }
       });
       svg.appendChild(node);
     }
+
     text.innerHTML = links.length ? sentenceHtml(meta, links, VARS, theme) : 'No link statistics for this selection.';
     cap.innerHTML = `<strong>Fig. 3</strong> — Spearman rank correlation per link, lag with the largest |ρ| shown; solid when Benjamini-Hochberg adjusted p &lt; 0.05.${basin ? '' : ' Water links are tested in the case-study basin.'}`;
+    updateValues(state);
+  }
+
+  function updateValues(state) {
+    if (!current || !nodeRefs.length) return;
+    const { meta, series } = current;
+    for (let i = 0; i < nodeRefs.length; i += 1) {
+      const ref = nodeRefs[i];
+      ref.node.classList.toggle('is-focus', state.focus === ref.varId);
+      if (ref.unavailable) continue;
+      const value = data.annualValue(series, ref.varId, state.year, ref.group === 'water' ? meta.primaryWaterBody : undefined);
+      ref.valEl.textContent = theme.fmt(value, ref.varId);
+      ref.unitEl.textContent = `${state.year} · ${ref.unitStr}`;
+    }
   }
 
   async function build(state) {
@@ -167,14 +200,16 @@ export async function mount(el, ctx) {
     if (my !== token) return;
     current = scope && scope.meta ? scope : null;
     if (!current) {
+      nodeRefs = [];
       theme.placeholder(el);
       return;
     }
-    draw(state);
+    drawStructure(current, state);
   }
+
   store.subscribe((state, prev) => {
     if (state.countryId !== prev.countryId || state.view !== prev.view) build(state);
-    else if (state.focus !== prev.focus || state.year !== prev.year) draw(state);
+    else if (state.focus !== prev.focus || state.year !== prev.year) updateValues(state);
   });
   await build(store.get());
 }

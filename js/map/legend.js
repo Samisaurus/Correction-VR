@@ -1,35 +1,32 @@
 // js/map/legend.js
-// Purpose: compact legend overlay (#map-legend) with 3-country color swatches and smooth haze key.
+// Purpose: compact legend overlay (#map-legend) with 3-country color swatches,
+//          blue-to-purple river pollution gradient key, and smooth smoke haze key.
 
 const STYLE = `
 .leg-box {
   background: rgba(255, 255, 255, 0.96); border: 1px solid var(--c-edge); border-radius: 10px;
-  font-size: 11.5px; line-height: 1.35; min-width: 184px; max-width: 256px; backdrop-filter: blur(4px);
+  font-size: 11px; line-height: 1.3; min-width: 186px; max-width: 256px; backdrop-filter: blur(4px);
 }
 .leg-title {
   display: flex; justify-content: space-between; align-items: center; gap: 8px;
-  padding: 6px 10px; border-bottom: 1px solid var(--c-edge); font-family: var(--f-mono);
-  font-size: 12px; font-weight: 600; cursor: pointer;
+  padding: 5px 9px; border-bottom: 1px solid var(--c-edge); font-family: var(--f-mono);
+  font-size: 11.5px; font-weight: 600; cursor: pointer;
   transition: background-color 150ms var(--ease-out);
 }
 .leg-title:hover { background: var(--c-panel); }
 .leg-title button { border: 0; background: none; padding: 0 3px; font-size: 13px; font-weight: 700; color: var(--c-muted); }
-.leg-body { padding: 7px 10px; }
+.leg-body { padding: 5px 9px; }
 .leg-box.is-collapsed .leg-body { display: none; }
 .leg-box.is-collapsed .leg-title { border-bottom: 0; }
-.leg-row { display: flex; align-items: center; gap: 7px; margin: 4px 0; }
+.leg-row { display: flex; align-items: center; gap: 7px; margin: 2.5px 0; }
 .leg-row svg { flex: 0 0 auto; display: block; overflow: visible; }
 .leg-fire { fill: var(--c-fire); fill-opacity: 0.75; }
-.leg-river { stroke: var(--c-river); stroke-width: 2; fill: none; }
-.leg-polluted { stroke: var(--c-polluted); stroke-width: 3; fill: none; }
-.leg-aod { fill: var(--c-smoke); }
 .leg-water { fill: var(--c-water); fill-opacity: 0.4; stroke: var(--c-water); stroke-width: 1; }
 .leg-contour { stroke: var(--c-contour); stroke-width: 1.1; fill: none; }
 .leg-basin { stroke: var(--c-basin); stroke-width: 1.5; stroke-dasharray: 3 2; fill: var(--c-basin); fill-opacity: 0.12; }
 .leg-countries { display: flex; flex-wrap: wrap; gap: 6px 10px; padding-top: 5px; margin-top: 5px; border-top: 1px solid var(--c-edge); font-size: 11px; }
 .leg-cchip { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; color: var(--c-ink); }
 .leg-swatch { width: 9px; height: 9px; border-radius: 3px; border: 1px solid rgba(0,0,0,0.2); display: inline-block; }
-.leg-mock { color: var(--c-fire); font-family: var(--f-mono); font-size: 11px; font-weight: 600; margin-top: 5px; }
 .leg-muted { color: var(--c-muted); }
 `;
 const NS = 'http://www.w3.org/2000/svg';
@@ -63,7 +60,7 @@ function row(graphic, text) {
 export async function mount(el, ctx) {
   injectStyle();
   const { store, data, theme } = ctx;
-  const { COUNTRY_COLORS } = theme;
+  const { COUNTRY_COLORS, COLORS } = theme;
   const regions = await data.getRegions();
   const box = document.createElement('div');
   box.className = 'leg-box';
@@ -88,25 +85,31 @@ export async function mount(el, ctx) {
   };
   title.addEventListener('click', () => setCollapsed(!collapsed));
   setCollapsed(collapsed);
-  let token = 0;
 
-  async function render(state) {
-    const my = ++token;
-    const scope = await data.getScope(state);
-    if (my !== token) return;
-    const meta = scope ? scope.meta : null;
+  let token = 0;
+  let lastScopePath = null;
+  let lastMeta = null;
+
+  function buildBody(meta) {
     const basin = meta && meta.kind === 'basin';
-    titleText.textContent = `${state.year} · ${meta ? meta.shortName : state.countryId}`;
     body.innerHTML = '';
     const k = basin ? 0.75 : 0.4;
     const r = (n) => (1 + k * Math.sqrt(n)).toFixed(1);
-    body.appendChild(row(svg(64, 26, `<circle class="leg-fire" cx="8" cy="13" r="${r(10)}"/><circle class="leg-fire" cx="26" cy="13" r="${r(100)}"/><circle class="leg-fire" cx="52" cy="13" r="${r(1000)}"/>`),
-      `<strong>Fire cells:</strong> 10 / 100 / 1,000 detections<br><span class="leg-muted">${basin ? '0.1°' : '0.5°'} cells, opacity = fire power</span>`));
-    body.appendChild(row(svg(28, 10, '<path class="leg-river" d="M1 7 C 8 2, 14 10, 27 3"/>'), '<strong>River</strong> (width = stream order)'));
-    body.appendChild(row(svg(28, 10, '<path class="leg-polluted" d="M1 7 C 8 2, 14 10, 27 3"/>'), `<strong>River near fires</strong> in ${state.year} (&lt; ${basin ? 25 : 50} km)`));
-    body.appendChild(row(svg(46, 12,
-      '<defs><linearGradient id="leg-smoke-g" x1="0" x2="1"><stop offset="0%" stop-color="#8A7F72" stop-opacity="0.06"/><stop offset="50%" stop-color="#7E7163" stop-opacity="0.32"/><stop offset="100%" stop-color="#4E4238" stop-opacity="0.58"/></linearGradient></defs><rect x="0" y="1" width="46" height="10" rx="5" fill="url(#leg-smoke-g)"/>'),
-      '<strong>Smoke plume (AOD):</strong> 0 → 0.6+'));
+    body.appendChild(row(
+      svg(64, 26, `<circle class="leg-fire" cx="8" cy="13" r="${r(10)}"/><circle class="leg-fire" cx="26" cy="13" r="${r(100)}"/><circle class="leg-fire" cx="52" cy="13" r="${r(1000)}"/>`),
+      `<strong>Fire cells:</strong> 10 / 100 / 1,000 detections<br><span class="leg-muted">${basin ? '0.1°' : '0.5°'} cells, opacity = fire power</span>`,
+    ));
+    body.appendChild(row(
+      svg(46, 12,
+        `<defs><linearGradient id="leg-river-g" x1="0" x2="1"><stop offset="0%" stop-color="${COLORS.river}"/><stop offset="45%" stop-color="#5E88D6"/><stop offset="100%" stop-color="${COLORS.polluted}"/></linearGradient></defs>`
+        + '<rect x="0" y="3" width="46" height="6" rx="3" fill="url(#leg-river-g)"/>'),
+      '<strong>River pollution:</strong> low (blue) → high (purple)<br><span class="leg-muted">width = stream order</span>',
+    ));
+    body.appendChild(row(
+      svg(46, 12,
+        '<defs><linearGradient id="leg-smoke-g" x1="0" x2="1"><stop offset="0%" stop-color="#8A7F72" stop-opacity="0.06"/><stop offset="50%" stop-color="#7E7163" stop-opacity="0.32"/><stop offset="100%" stop-color="#4E4238" stop-opacity="0.58"/></linearGradient></defs><rect x="0" y="1" width="46" height="10" rx="5" fill="url(#leg-smoke-g)"/>'),
+      '<strong>Smoke plume (AOD):</strong> 0 → 0.6+',
+    ));
     if (basin) {
       body.appendChild(row(svg(28, 12, '<rect class="leg-water" x="1" y="1" width="26" height="10" rx="2"/>'), '<strong>Water box</strong> (Kd490 shade)'));
       body.appendChild(row(svg(28, 12, '<path class="leg-contour" d="M1 9 C 6 2, 10 2, 14 7 S 24 11, 27 3"/>'), '<strong>Contour lines</strong> (terrain)'));
@@ -130,13 +133,21 @@ export async function mount(el, ctx) {
       }
       body.appendChild(cRow);
     }
-    if (regions && regions.mock === true) {
-      const m = document.createElement('div');
-      m.className = 'leg-mock';
-      m.textContent = 'Data: mock';
-      body.appendChild(m);
-    }
   }
+
+  async function render(state) {
+    const scopePath = data.scopePath(state);
+    if (scopePath !== lastScopePath) {
+      const my = ++token;
+      const scope = await data.getScope(state);
+      if (my !== token) return;
+      lastScopePath = scopePath;
+      lastMeta = scope ? scope.meta : null;
+      buildBody(lastMeta);
+    }
+    titleText.textContent = `${state.year} · ${lastMeta ? lastMeta.shortName : state.countryId}`;
+  }
+
   store.subscribe((state, prev) => {
     if (state.year !== prev.year || state.countryId !== prev.countryId || state.view !== prev.view) render(state);
   });

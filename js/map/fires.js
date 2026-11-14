@@ -38,15 +38,29 @@ export function addLayer(map, ctx) {
     popup.remove();
   });
 
+  const maxCache = new WeakMap();
+  let lastFires = null;
+
   return {
     update(state, payload) {
       const fires = payload && payload.fires && Array.isArray(payload.fires.features) ? payload.fires : EMPTY;
-      map.getSource('fires-src').setData(fires);
-      let max = 0;
-      for (const f of fires.features) max = Math.max(max, Number(f.properties && f.properties.frp_sum) || 0);
-      map.setPaintProperty('fires-dot', 'circle-opacity', max > 0
-        ? ['interpolate', ['linear'], ['get', 'frp_sum'], 0, 0.3, max, 0.95]
-        : 0.6);
+      if (fires !== lastFires) {
+        lastFires = fires;
+        map.getSource('fires-src').setData(fires);
+        let max = maxCache.get(fires);
+        if (max === undefined) {
+          max = 0;
+          const features = fires.features;
+          for (let i = 0; i < features.length; i += 1) {
+            const v = Number(features[i].properties && features[i].properties.frp_sum) || 0;
+            if (v > max) max = v;
+          }
+          maxCache.set(fires, max);
+        }
+        map.setPaintProperty('fires-dot', 'circle-opacity', max > 0
+          ? ['interpolate', ['linear'], ['get', 'frp_sum'], 0, 0.3, max, 0.95]
+          : 0.6);
+      }
       popup.remove();
     },
   };

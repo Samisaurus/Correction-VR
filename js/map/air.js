@@ -27,8 +27,12 @@ function featureCentroid(f) {
   return n ? [sx / n, sy / n] : null;
 }
 
+const plumeCache = new WeakMap();
+
 function toPointPlume(air) {
   if (!air || !Array.isArray(air.features) || air.features.length === 0) return EMPTY;
+  const cached = plumeCache.get(air);
+  if (cached) return cached;
   const features = [];
   for (const f of air.features) {
     const coords = featureCentroid(f);
@@ -39,7 +43,9 @@ function toPointPlume(air) {
       properties: f.properties || {},
     });
   }
-  return { type: 'FeatureCollection', features };
+  const out = { type: 'FeatureCollection', features };
+  plumeCache.set(air, out);
+  return out;
 }
 
 export function addLayer(map, ctx) {
@@ -89,10 +95,14 @@ export function addLayer(map, ctx) {
   });
   map.on('mouseleave', 'air-cells', () => popup.remove());
 
+  let lastAir = null;
   return {
     update(state, payload) {
       const air = payload && payload.air ? toPointPlume(payload.air) : EMPTY;
-      map.getSource('air-src').setData(air);
+      if (air !== lastAir) {
+        lastAir = air;
+        map.getSource('air-src').setData(air);
+      }
       popup.remove();
     },
   };
