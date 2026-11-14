@@ -55,7 +55,17 @@ async function mountMethods() {
   }
 }
 
+/** Mirror countryId and view onto <html> so css/layout.css can colour the data windows' frames. */
+function syncFrame(state) {
+  const root = document.documentElement;
+  root.dataset.country = state.countryId;
+  root.dataset.view = state.view;
+}
+
 export async function main() {
+  syncFrame(store.get());
+  store.subscribe(syncFrame);
+
   // regions.json first, so data.scopePath() works synchronously for every module.
   const regions = await data.getRegions();
   if (!regions) console.info('main: data/regions.json could not be loaded; modules will show placeholders');

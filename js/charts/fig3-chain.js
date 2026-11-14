@@ -40,9 +40,10 @@ function svgEl(tag, attrs = {}, text) {
   return n;
 }
 
+// Two short lines so a label never gets wider than the gap between two nodes.
 const linkLabel = (l, theme) => (l.rho === null
-  ? 'ρ = — · too few pairs'
-  : `ρ = ${l.rho.toFixed(2)} · lag ${l.lag} ${l.lag_unit === 'month' ? 'mo' : 'yr'} · p_adj ${theme.fmtP(l.p_adj).replace('p ', '')}`);
+  ? ['ρ = —', 'too few pairs']
+  : [`ρ = ${l.rho.toFixed(2)}`, `lag ${l.lag} ${l.lag_unit === 'month' ? 'mo' : 'yr'} · p_adj ${theme.fmtP(l.p_adj).replace('p ', '')}`]);
 
 function sentence(meta, links, vars, theme) {
   const strength = (r) => (Math.abs(r) >= 0.5 ? 'strongly' : Math.abs(r) >= 0.3 ? 'moderately' : 'weakly');
@@ -71,7 +72,7 @@ export async function mount(el, ctx) {
   const title = document.createElement('h3');
   title.className = 'f3-title';
   title.textContent = 'Fig. 3 — The chain';
-  const svg = svgEl('svg', { class: 'f3-svg', viewBox: '0 0 720 236', role: 'img', 'aria-label': 'Fire to air to water to fish chain with Spearman correlations' });
+  const svg = svgEl('svg', { class: 'f3-svg', viewBox: '0 0 720 252', role: 'img', 'aria-label': 'Fire to air to water to fish chain with Spearman correlations' });
   const text = document.createElement('p');
   text.className = 'f3-text';
   const cap = document.createElement('p');
@@ -103,22 +104,27 @@ export async function mount(el, ctx) {
     svg.appendChild(defs);
     const cx = [90, 270, 450, 630];
     const cy = 92;
-    const R = 34;
+    const R = 40;   // big enough that the name and the value sit inside the circle
     const drawArrow = (d, l, target, labelXY) => {
       const sig = l && l.rho !== null && l.p_adj !== null && l.p_adj < 0.05;
       const p = svgEl('path', { class: 'f3-arrow', d, stroke: sig ? TOKEN[target] : COLORS.rule,
         'stroke-dasharray': sig ? 'none' : '6 4', 'marker-end': `url(#f3-arrow-${sig ? target : 'grey'})` });
       svg.appendChild(p);
-      if (l) svg.appendChild(svgEl('text', { class: 'f3-label', x: labelXY[0], y: labelXY[1] }, linkLabel(l, theme)));
+      if (l) {
+        const [l1, l2] = linkLabel(l, theme);
+        svg.appendChild(svgEl('text', { class: 'f3-label', x: labelXY[0], y: labelXY[1] }, l1));
+        svg.appendChild(svgEl('text', { class: 'f3-label', x: labelXY[0], y: labelXY[1] + 13 }, l2));
+      }
     };
     for (let i = 0; i < 3; i += 1) {
       const l = chain[i];
       const missing = !basin && i > 0;
       if (missing) continue;
-      drawArrow(`M${cx[i] + R + 4} ${cy} L${cx[i + 1] - R - 6} ${cy}`, l, NODES[i + 1], [(cx[i] + cx[i + 1]) / 2, cy - 10]);
+      drawArrow(`M${cx[i] + R + 4} ${cy} L${cx[i + 1] - R - 6} ${cy}`, l, NODES[i + 1], [(cx[i] + cx[i + 1]) / 2, cy - R - 24]);
     }
     if (arc) {
-      drawArrow(`M${cx[0] + 10} ${cy + R + 4} C ${cx[0] + 60} ${cy + 118}, ${cx[3] - 60} ${cy + 118}, ${cx[3] - 10} ${cy + R + 6}`, arc, 'fish', [360, cy + 108]);
+      const ay = cy + R + 30;   // just under the unit captions
+      drawArrow(`M${cx[0]} ${ay} C ${cx[0] + 60} ${ay + 70}, ${cx[3] - 60} ${ay + 70}, ${cx[3]} ${ay + 2}`, arc, 'fish', [360, ay + 64]);
     }
     for (let i = 0; i < 4; i += 1) {
       const g = NODES[i];
@@ -130,14 +136,14 @@ export async function mount(el, ctx) {
       node.appendChild(svgEl('text', { class: 'f3-name', x: cx[i], y: cy - 4 }, v ? v.short : g));
       if (unavailable) {
         node.appendChild(svgEl('text', { class: 'f3-link', x: cx[i], y: cy + 12 }, 'basin only'));
-        const hint = svgEl('text', { class: 'f3-link', x: cx[i], y: cy + 58 }, 'Measured in the case-study basin →');
+        const hint = svgEl('text', { class: 'f3-link', x: cx[i], y: cy + R + 18 }, 'Measured in the case-study basin →');
         hint.addEventListener('click', () => store.set({ view: 'basin' }));
         svg.appendChild(hint);
         node.addEventListener('click', () => store.set({ view: 'basin' }));
       } else {
         const value = data.annualValue(series, varId, state.year, g === 'water' ? meta.primaryWaterBody : undefined);
         node.appendChild(svgEl('text', { class: 'f3-value', x: cx[i], y: cy + 13 }, theme.fmt(value, varId)));
-        node.appendChild(svgEl('text', { class: 'f3-unit', x: cx[i], y: cy + 52 }, `${state.year} · ${theme.unitFor(varId, meta)}`));
+        node.appendChild(svgEl('text', { class: 'f3-unit', x: cx[i], y: cy + R + 16 }, `${state.year} · ${theme.unitFor(varId, meta)}`));
         node.addEventListener('click', () => store.set({ focus: varId }));
       }
       node.addEventListener('keydown', (ev) => {

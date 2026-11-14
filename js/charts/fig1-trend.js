@@ -126,7 +126,7 @@ export async function mount(el, ctx) {
     const sen = ta && ta.sen_slope !== null && ta.sen_intercept !== null
       ? annual.map((d) => ({ date: d.date, value: ta.sen_intercept + ta.sen_slope * (d.year - y0) }))
       : [];
-    const width = Math.max(260, plotBox.clientWidth || el.clientWidth - 24 || 420);
+    const width = Math.max(260, plotBox.clientWidth || el.clientWidth - 40 || 420);
     const step = width < 520 ? 2 : 1;
     const ticks = [];
     for (let y = y0; y <= y1; y += step) ticks.push(DAY(y));
@@ -149,7 +149,7 @@ export async function mount(el, ctx) {
         title: (d) => `Major fire year ${d.year}` }) : null,
     ].filter(Boolean);
     const svg = Plot.plot({
-      width, height: 230, marginLeft: 52, marginRight: 14, marginTop: 10, marginBottom: 28,
+      width, height: 248, marginLeft: 64, marginRight: 20, marginTop: 30, marginBottom: 28,
       style: { fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: '11px', color: COLORS.muted, background: 'transparent', overflow: 'visible' },
       x: { domain: [DAY(y0), DAY(y1 + 1)], ticks, tickFormat: '%Y', label: null },
       y: { label: `${v.short} (${unit})`, labelAnchor: 'top', nice: true, zero: !isWater },
