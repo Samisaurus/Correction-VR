@@ -1,40 +1,54 @@
 // js/ui/infobox.js
 // Purpose: Wikipedia-style infobox (#infobox): the selected year's value, a sparkline and the change
 //          against the 2012–2025 median for every variable of the current scope; rows set focus.
-//          Shows the MOCK DATA badge while regions.json has "mock": true.
-// Exports: mount(el, ctx)
-// Owner: GPT-UI · Task G3 (built here against the Session Primer v2)
 
 const STYLE = `
-.ibx-box { border: 1px solid var(--c-rule); background: var(--c-panel); border-radius: 2px; font-size: 14px; }
-.ibx-caption { position: relative; padding: 10px 14px 8px; border-bottom: 1px solid var(--c-rule); }
-.ibx-name { display: block; font-family: var(--f-serif); font-size: 17px; font-weight: 600; line-height: 1.25; padding-right: 92px; }
+.ibx-box { border: 1px solid var(--c-edge); background: var(--c-paper); border-radius: 2px; font-size: 14px; }
+.ibx-caption { position: relative; padding: 10px 14px 8px; border-bottom: 1px solid var(--c-edge); }
+.ibx-name { display: block; font-family: var(--f-serif); font-size: 18px; font-weight: 700; line-height: 1.25; padding-right: 92px; color: var(--c-ink); }
 .ibx-sub { display: block; margin-top: 3px; font-family: var(--f-mono); font-size: 12px; color: var(--c-muted); }
-.ibx-badge { position: absolute; top: 10px; right: 12px; padding: 1px 6px; border: 1px solid var(--c-fire); border-radius: 2px;
-  color: var(--c-fire); font-family: var(--f-mono); font-size: 11px; font-weight: 500; letter-spacing: 0.04em; }
+.ibx-sub strong { color: var(--c-ink); font-weight: 600; }
+.ibx-badge { position: absolute; top: 10px; right: 12px; padding: 2px 7px; border: 1px solid var(--c-fire); border-radius: 6px;
+  color: var(--c-fire); font-family: var(--f-mono); font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; background: rgba(213, 94, 0, 0.05); }
 .ibx-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .ibx-row[data-group="fire"] { --ibx-color: var(--c-fire); }
 .ibx-row[data-group="air"] { --ibx-color: var(--c-smoke); }
 .ibx-row[data-group="water"] { --ibx-color: var(--c-water); }
 .ibx-row[data-group="fish"] { --ibx-color: var(--c-fish); }
-.ibx-row th, .ibx-row td { padding: 7px 10px; border-bottom: 1px solid var(--c-rule); vertical-align: middle; }
+.ibx-row th, .ibx-row td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--c-edge);
+  vertical-align: middle;
+  transition: background-color 160ms var(--ease-out), border-color 180ms var(--ease-out);
+}
 .ibx-row:last-of-type th, .ibx-row:last-of-type td { border-bottom: 0; }
-.ibx-row th { width: 44%; font-weight: 500; border-left: 3px solid transparent; text-align: left; }
+.ibx-row th {
+  width: 44%;
+  font-weight: 600;
+  color: var(--c-ink);
+  border-left: 3px solid transparent;
+  text-align: left;
+  transition: background-color 160ms var(--ease-out), border-left-color 200ms var(--ease-out);
+}
 .ibx-row[role="button"] { cursor: pointer; }
-.ibx-row[role="button"]:hover th, .ibx-row[role="button"]:hover td { background: var(--c-paper); }
-.ibx-row.is-focus th { border-left-color: var(--ibx-color); }
+.ibx-row[role="button"]:hover th, .ibx-row[role="button"]:hover td { background: var(--c-panel); }
+.ibx-row[role="button"]:active th, .ibx-row[role="button"]:active td { background: #EEF2F6; }
+.ibx-row.is-focus th { border-left-color: var(--ibx-color); background: rgba(15, 23, 42, 0.02); }
+.ibx-row.is-focus td { background: rgba(15, 23, 42, 0.02); }
 .ibx-row:focus-visible { outline: 2px solid var(--c-link); outline-offset: -2px; }
-.ibx-sublabel { display: block; font-size: 11px; color: var(--c-muted); }
+.ibx-sublabel { display: block; font-size: 11px; font-weight: 500; color: var(--c-muted); margin-top: 1px; }
 .ibx-value { white-space: nowrap; }
-.ibx-num { font-family: var(--f-mono); font-size: 15px; font-variant-numeric: tabular-nums; }
-.ibx-unit { font-size: 12px; color: var(--c-muted); margin-left: 3px; }
-.ibx-delta { display: block; font-size: 11px; color: var(--c-muted); margin-top: 1px; }
+.ibx-num { font-family: var(--f-mono); font-size: 15.5px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--c-ink); }
+.ibx-unit { font-size: 12px; font-weight: 500; color: var(--c-muted); margin-left: 4px; }
+.ibx-delta { display: block; font-size: 11.5px; color: var(--c-muted); margin-top: 2px; }
+.ibx-delta strong { font-weight: 600; color: var(--c-ink); }
 .ibx-spark { width: 84px; text-align: right; }
 .ibx-spark svg { display: inline-block; width: 72px; height: 18px; color: var(--ibx-color); overflow: visible; }
-.ibx-spark polyline { fill: none; stroke: currentColor; stroke-width: 1.2; }
-.ibx-spark circle { fill: var(--c-year); stroke: var(--c-paper); stroke-width: 1; }
-.ibx-link { color: var(--c-link); }
-.ibx-foot { padding: 7px 12px; font-size: 12px; color: var(--c-muted); border-top: 1px solid var(--c-rule); }
+.ibx-spark polyline { fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.ibx-spark circle { fill: var(--c-year); stroke: var(--c-paper); stroke-width: 1.2; transition: cx 180ms var(--ease-out), cy 180ms var(--ease-out); }
+.ibx-link { color: var(--c-link); font-weight: 600; }
+.ibx-foot { padding: 8px 14px; font-size: 12px; color: var(--c-muted); border-top: 1px solid var(--c-edge); }
+.ibx-foot strong { color: var(--c-ink); font-weight: 600; }
 .ibx-missing { font-style: italic; color: var(--c-muted); font-size: 13px; }
 @media (max-width: 480px) {
   .ibx-row th { width: 38%; }
@@ -93,7 +107,7 @@ function sparkline(points, year) {
     const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
     c.setAttribute('cx', x(sel).toFixed(1));
     c.setAttribute('cy', y(points[sel].value).toFixed(1));
-    c.setAttribute('r', '2.4');
+    c.setAttribute('r', '2.5');
     svg.appendChild(c);
   }
   return svg;
@@ -108,7 +122,7 @@ export async function mount(el, ctx) {
     return;
   }
   const [y0, y1] = Array.isArray(regions.years) ? regions.years : [2012, 2025];
-  let current = null; // { scope, rows }
+  let current = null;
   let token = 0;
 
   function rowSpecs(scope) {
@@ -204,7 +218,7 @@ export async function mount(el, ctx) {
     table.appendChild(tbody);
     const foot = document.createElement('div');
     foot.className = 'ibx-foot';
-    foot.textContent = 'Sources: NASA FIRMS (VIIRS), MERRA-2, MODIS-Aqua; DFO, NOAA, FAO';
+    foot.innerHTML = '<strong>Sources:</strong> NASA FIRMS (VIIRS), MERRA-2, MODIS-Aqua · DFO, NOAA, FAO';
     box.append(cap, table, foot);
     el.appendChild(box);
     current = { scope, rows, sub, countryShort: country ? country.shortName : meta.countryId };
@@ -215,7 +229,9 @@ export async function mount(el, ctx) {
     if (!current) return;
     const { scope, rows, sub, countryShort } = current;
     const { meta } = scope;
-    sub.textContent = meta.kind === 'basin' ? `Case study in ${countryShort} · ${state.year}` : `Whole country · ${state.year}`;
+    sub.innerHTML = meta.kind === 'basin'
+      ? `<strong>Case study</strong> in ${countryShort} · <strong>${state.year}</strong>`
+      : `<strong>Whole country</strong> · <strong>${state.year}</strong>`;
     for (const row of rows) {
       if (row.spec.link) continue;
       const { spec, tr, tdVal, tdSpark, points } = row;
@@ -237,7 +253,8 @@ export async function mount(el, ctx) {
       const med = median(points.map((p) => p.value));
       if (value !== null && med !== null && med !== 0) {
         const pct = ((value - med) / Math.abs(med)) * 100;
-        delta.textContent = `${pct >= 0 ? '+' : '−'}${Math.abs(pct).toFixed(0)} % vs ${y0}–${y1} median`;
+        const sign = pct >= 0 ? '+' : '−';
+        delta.innerHTML = `<strong>${sign}${Math.abs(pct).toFixed(0)}%</strong> vs ${y0}–${y1} median`;
       } else {
         delta.textContent = `— vs ${y0}–${y1} median`;
       }

@@ -1,24 +1,32 @@
 // js/charts/fig2-before-after.js
-// Purpose: Fig. 2 (#fig2) — before / after bars for the focused variable around a fire year, monthly dots,
-//          event chips that jump the slider, and the Welch / Mann-Whitney / Cohen's d line from stats.json.
-// Exports: mount(el, ctx)
-// Owner: GPT-UI · Task G5 (built here against the Session Primer v2). Uses Observable Plot 0.6 (contract R2).
+// Purpose: Fig. 2 (#fig2) — before / after bars for the focused variable around a fire year.
 import * as Plot from 'https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6/+esm';
 
 const STYLE = `
 .f2-root { padding: 10px 12px 8px; }
 .f2-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; }
-.f2-title { font-family: var(--f-serif); font-size: 15px; font-weight: 600; margin: 0; }
-.f2-chips { display: flex; flex-wrap: wrap; gap: 4px; }
-.f2-chip { padding: 1px 8px; font-family: var(--f-mono); font-size: 12px; color: var(--c-muted); border: 1px solid var(--c-rule); border-radius: 2px; background: var(--c-paper); }
-.f2-chip[aria-pressed="true"] { color: var(--c-ink); border-color: var(--c-year); background: var(--c-panel); font-weight: 500; }
-.f2-plot { margin-top: 4px; min-height: 230px; }
-.f2-plot svg { display: block; max-width: 100%; }
-.f2-stats { font-family: var(--f-mono); font-size: 12.5px; margin: 4px 0 0; line-height: 1.5; }
-.f2-verdict { font-weight: 600; }
-.f2-verdict.is-muted { font-weight: 400; color: var(--c-muted); }
-.f2-cap { font-size: 13px; font-style: italic; color: var(--c-muted); margin: 4px 0 0; }
-.f2-link { color: var(--c-link); }
+.f2-title { font-family: var(--f-serif); font-size: 16px; font-weight: 700; margin: 0; color: var(--c-ink); }
+.f2-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.f2-chip {
+  padding: 2px 9px; font-family: var(--f-mono); font-size: 12px; font-weight: 500;
+  color: var(--c-muted); border: 1px solid var(--c-edge); border-radius: 8px; background: var(--c-paper);
+  transition:
+    background-color 160ms var(--ease-out),
+    border-color 160ms var(--ease-out),
+    color 160ms var(--ease-out),
+    transform 100ms var(--ease-spring);
+}
+.f2-chip:hover:not([aria-pressed="true"]) { color: var(--c-ink); background: var(--c-panel); border-color: var(--c-edge-hover); }
+.f2-chip:active { transform: scale(0.94); transition-duration: 60ms; }
+.f2-chip[aria-pressed="true"] { color: var(--c-ink); border-color: var(--c-year); background: rgba(230, 159, 0, 0.1); font-weight: 700; }
+.f2-plot { margin-top: 6px; min-height: 230px; }
+.f2-plot svg { display: block; max-width: 100%; animation: emberFadeIn 190ms var(--ease-out); }
+.f2-stats { font-family: var(--f-mono); font-size: 12px; margin: 6px 0 0; line-height: 1.55; color: var(--c-ink); }
+.f2-stats strong { font-weight: 600; color: var(--c-ink); }
+.f2-verdict { font-weight: 700; color: var(--c-ink); }
+.f2-verdict.is-muted { font-weight: 500; color: var(--c-muted); }
+.f2-cap { font-size: 12.5px; font-style: italic; color: var(--c-muted); margin: 4px 0 0; }
+.f2-link { color: var(--c-link); font-weight: 600; }
 `;
 const ORDER = ['kd490', 'aod', 'chlor_a'];
 
@@ -135,7 +143,7 @@ export async function mount(el, ctx) {
       x: { domain: [0, 2], ticks: [0.5, 1.5], tickFormat: (d) => (d < 1 ? beforeLabel : afterLabel), label: null },
       y: { label: `${v.short} (${unit})`, labelAnchor: 'top', nice: true, zero: true },
       marks: [
-        Plot.gridY({ stroke: COLORS.rule, strokeOpacity: 0.45 }),
+        Plot.gridY({ stroke: COLORS.rule, strokeOpacity: 0.5 }),
         Plot.rectY(bars, { x1: 'x1', x2: 'x2', y: 'y', fill: color, fillOpacity: 0.18, stroke: color, strokeWidth: 1.5 }),
         Plot.dot(dots, { x: 'x', y: 'value', r: 3, fill: color, fillOpacity: 0.85, title: 'label' }),
         Plot.ruleY([0], { stroke: COLORS.rule }),
@@ -143,10 +151,10 @@ export async function mount(el, ctx) {
     });
     plotBox.appendChild(svg);
     const sig = entry.p < 0.05;
-    stats.innerHTML = `Welch t = ${entry.welch_t.toFixed(2)} · df = ${entry.df.toFixed(1)} · ${theme.fmtP(entry.p)} · d = ${entry.cohens_d.toFixed(2)} `
-      + `· Mann-Whitney ${theme.fmtP(entry.mannwhitney_p)} · n = ${entry.n_before}/${entry.n_after}<br>`
-      + `<span class="f2-verdict${sig ? '' : ' is-muted'}">${sig ? 'Different (p < 0.05)' : 'No clear difference'}</span>`;
-    cap.textContent = `Fig. 2 — ${v.label}, May–Sep, before vs ${during ? 'during' : 'after'} the ${entry.event} fire season, ${meta.name}. Dots: monthly values. Bars: means.`;
+    stats.innerHTML = `<strong>Welch t</strong> = ${entry.welch_t.toFixed(2)} · <strong>df</strong> = ${entry.df.toFixed(1)} · ${theme.fmtP(entry.p)} · <strong>d</strong> = ${entry.cohens_d.toFixed(2)} `
+      + `· <strong>Mann-Whitney</strong> ${theme.fmtP(entry.mannwhitney_p)} · n = ${entry.n_before}/${entry.n_after}<br>`
+      + `<span class="f2-verdict${sig ? '' : ' is-muted'}">${sig ? 'Different (p &lt; 0.05)' : 'No clear difference'}</span>`;
+    cap.innerHTML = `<strong>Fig. 2</strong> — ${v.label}, May–Sep, before vs ${during ? 'during' : 'after'} the <strong>${entry.event}</strong> fire season, ${meta.name}. Dots: monthly values. Bars: means.`;
   }
 
   async function build(state) {

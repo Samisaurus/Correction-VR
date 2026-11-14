@@ -1,20 +1,45 @@
 // js/ui/header.js
-// Purpose: site title, country tabs (#region-tabs) and the Whole country / Case study toggle (#view-toggle).
-//          Writes countryId (keeping view and year, playing false) and view. Reads regions.json only.
-// Exports: mount(el, ctx)
-// Owner: GPT-UI · Task G1 (built here against the Session Primer v2)
+// Purpose: site title, country tabs (#region-tabs) and Whole country / Case study toggle (#view-toggle).
 
 const STYLE = `
 .hdr-root { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 10px 24px; }
-.hdr-brand h1 { font-family: var(--f-serif); font-size: 26px; font-weight: 600; line-height: 1.15; margin: 0; }
-.hdr-sub { margin: 3px 0 0; font-size: 14px; color: var(--c-muted); }
+.hdr-brand h1 { font-family: var(--f-serif); font-size: 27px; font-weight: 700; letter-spacing: -0.015em; line-height: 1.15; margin: 0; }
+.hdr-sub { margin: 4px 0 0; font-size: 13.5px; color: var(--c-muted); letter-spacing: 0.005em; }
+.hdr-sub strong { color: var(--c-ink); font-weight: 600; }
 .hdr-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px 18px; }
-.hdr-tabs, .hdr-toggle { display: flex; gap: 2px; }
-.hdr-toggle { border-left: 1px solid var(--c-rule); padding-left: 14px; }
-.hdr-btn { background: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 6px 10px 5px;
-  color: var(--c-muted); font-size: 15px; font-weight: 500; cursor: pointer; white-space: nowrap; }
-.hdr-btn:hover { color: var(--c-ink); background: var(--c-panel); }
-.hdr-btn[aria-pressed="true"] { color: var(--c-ink); border-bottom-color: var(--c-ink); }
+.hdr-tabs, .hdr-toggle { display: flex; gap: 4px; }
+.hdr-toggle { border-left: 1px solid var(--c-edge); padding-left: 16px; }
+.hdr-btn {
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 6px 6px 0 0;
+  padding: 6px 11px 6px;
+  color: var(--c-muted);
+  font-size: 14.5px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    color 160ms var(--ease-out),
+    background-color 160ms var(--ease-out),
+    border-color 200ms var(--ease-out),
+    transform 100ms var(--ease-spring);
+}
+.hdr-btn:hover:not([disabled]) {
+  color: var(--c-ink);
+  background: rgba(15, 23, 42, 0.045);
+}
+.hdr-btn:active:not([disabled]) {
+  transform: scale(0.96);
+  transition-duration: 60ms;
+}
+.hdr-btn[aria-pressed="true"] {
+  color: var(--c-ink);
+  font-weight: 600;
+  border-bottom-color: var(--c-ink);
+  background: rgba(15, 23, 42, 0.03);
+}
 .hdr-btn--basin[aria-pressed="true"] { border-bottom-color: var(--c-basin); }
 @media (max-width: 899px) {
   .hdr-brand h1 { font-size: 22px; }
@@ -41,7 +66,6 @@ function button(text, title, extraClass) {
   return b;
 }
 
-/** ArrowLeft / ArrowRight move focus between the buttons of one group. */
 function arrowNavigation(group) {
   group.addEventListener('keydown', (ev) => {
     if (ev.key !== 'ArrowLeft' && ev.key !== 'ArrowRight') return;
@@ -74,7 +98,7 @@ export async function mount(el, ctx) {
   h1.textContent = 'Ember to Ocean';
   const sub = document.createElement('p');
   sub.className = 'hdr-sub';
-  sub.textContent = `Wildfire, air, water and salmon · ${y0}–${y1} · NASA Space Apps 2026`;
+  sub.innerHTML = `<strong>Wildfire, air, water &amp; salmon</strong> · ${y0}–${y1} · NASA Space Apps 2026`;
   brand.append(h1, sub);
 
   const controls = document.createElement('div');

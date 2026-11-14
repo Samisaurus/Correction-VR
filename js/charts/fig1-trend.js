@@ -1,28 +1,36 @@
 // js/charts/fig1-trend.js
-// Purpose: Fig. 1 (#fig1) — annual line + monthly trace + thick Sen trend line for the focused variable,
-//          with Fire | Air | Water | Fish buttons that set focus and a Mann-Kendall stats line from stats.json.
-// Exports: mount(el, ctx)
-// Owner: GPT-UI · Task G4 (built here against the Session Primer v2). Uses Observable Plot 0.6 (contract R2).
+// Purpose: Fig. 1 (#fig1) — annual line + monthly trace + thick Sen trend line for the focused variable.
 import * as Plot from 'https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6/+esm';
 
 const STYLE = `
 .f1-root { padding: 10px 12px 8px; }
 .f1-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; }
-.f1-title { font-family: var(--f-serif); font-size: 15px; font-weight: 600; margin: 0; }
-.f1-seg { display: inline-flex; border: 1px solid var(--c-rule); border-radius: 2px; overflow: hidden; }
-.f1-seg button { border: 0; border-radius: 0; border-left: 1px solid var(--c-rule); padding: 2px 9px; font-size: 12.5px; color: var(--c-muted); background: var(--c-paper); }
-.f1-seg button:first-child { border-left: 0; }
-.f1-seg button[aria-pressed="true"] { color: var(--c-paper); background: var(--c-ink); }
+.f1-title { font-family: var(--f-serif); font-size: 16px; font-weight: 700; margin: 0; color: var(--c-ink); }
+.f1-seg { display: inline-flex; border: 1px solid var(--c-edge); border-radius: 8px; overflow: hidden; background: var(--c-panel); padding: 2px; gap: 2px; }
+.f1-seg button {
+  border: 0; border-radius: 6px; padding: 3px 10px; font-size: 12.5px; font-weight: 500;
+  color: var(--c-muted); background: transparent;
+  transition:
+    background-color 170ms var(--ease-out),
+    color 170ms var(--ease-out),
+    box-shadow 170ms var(--ease-out),
+    transform 100ms var(--ease-spring);
+}
+.f1-seg button:hover:not([aria-pressed="true"]) { color: var(--c-ink); background: rgba(255, 255, 255, 0.7); }
+.f1-seg button:active { transform: scale(0.95); transition-duration: 60ms; }
+.f1-seg button[aria-pressed="true"] { color: var(--c-paper); font-weight: 600; background: var(--c-ink); box-shadow: 0 1px 3px rgba(15, 23, 42, 0.16); }
 .f1-seg button[data-group="fire"][aria-pressed="true"] { background: var(--c-fire); }
 .f1-seg button[data-group="air"][aria-pressed="true"] { background: var(--c-smoke); }
 .f1-seg button[data-group="water"][aria-pressed="true"] { background: var(--c-water); }
 .f1-seg button[data-group="fish"][aria-pressed="true"] { background: var(--c-fish); }
-.f1-plot { margin-top: 4px; min-height: 230px; }
-.f1-plot svg { display: block; max-width: 100%; }
-.f1-stats { font-family: var(--f-mono); font-size: 12.5px; color: var(--c-ink); margin: 4px 0 0; line-height: 1.5; }
+.f1-plot { margin-top: 6px; min-height: 230px; }
+.f1-plot svg { display: block; max-width: 100%; animation: emberFadeIn 190ms var(--ease-out); }
+.f1-stats { font-family: var(--f-mono); font-size: 12px; color: var(--c-ink); margin: 6px 0 0; line-height: 1.55; }
+.f1-stats strong { font-weight: 600; color: var(--c-ink); }
 .f1-stats .f1-muted { color: var(--c-muted); }
-.f1-cap { font-size: 13px; font-style: italic; color: var(--c-muted); margin: 4px 0 0; }
-.f1-link { color: var(--c-link); }
+.f1-stats .f1-muted strong { color: var(--c-muted); font-weight: 600; }
+.f1-cap { font-size: 12.5px; font-style: italic; color: var(--c-muted); margin: 4px 0 0; }
+.f1-link { color: var(--c-link); font-weight: 600; }
 `;
 const DAY = (y, m = 0, d = 1) => new Date(Date.UTC(y, m, d));
 
@@ -45,7 +53,7 @@ function trendText(t, unit, theme) {
   const label = t.basis === 'annual' ? 'Mann-Kendall (annual)' : 'Seasonal Mann-Kendall (monthly)';
   const digits = Math.abs(t.sen_slope || 0) >= 100 ? 0 : 4;
   const tau = t.tau === null ? 'τ = —' : `τ = ${t.tau.toFixed(2).replace('-', '−')}`;
-  return `${label}: ${tau} · ${theme.fmtP(t.p)} · Sen = ${signed(t.sen_slope, digits)} ${unit}/yr · ${t.direction}${t.n ? ` (n = ${t.n})` : ''}`;
+  return `<strong>${label}:</strong> ${tau} · ${theme.fmtP(t.p)} · <strong>Sen:</strong> ${signed(t.sen_slope, digits)} ${unit}/yr · <strong>${t.direction}</strong>${t.n ? ` (n = ${t.n})` : ''}`;
 }
 
 export async function mount(el, ctx) {
@@ -88,7 +96,7 @@ export async function mount(el, ctx) {
   root.append(head, plotBox, stats, cap);
   el.appendChild(root);
 
-  let current = null; // scope
+  let current = null;
   let token = 0;
 
   function draw(state) {
@@ -99,7 +107,7 @@ export async function mount(el, ctx) {
     for (const g of GROUPS) segButtons[g].setAttribute('aria-pressed', String(v.group === g));
     const unit = theme.unitFor(focus, meta);
     const [y0, y1] = meta.years || [2012, 2025];
-    cap.textContent = `Fig. 1 — ${v.label}, ${meta.name}, ${y0}–${y1}. Thick line: Sen slope.`;
+    cap.innerHTML = `<strong>Fig. 1</strong> — ${v.label}, ${meta.name}, ${y0}–${y1}. Thick line: Sen slope.`;
     plotBox.innerHTML = '';
     stats.innerHTML = '';
     if (data.isWaterVar(focus) && meta.kind !== 'basin') {
@@ -134,7 +142,7 @@ export async function mount(el, ctx) {
     const isWater = data.isWaterVar(focus);
     const monthlyShown = isWater ? monthly.filter((d) => [5, 6, 7, 8, 9].includes(d.date.getUTCMonth() + 1)) : monthly;
     const marks = [
-      Plot.gridY({ stroke: COLORS.rule, strokeOpacity: 0.45 }),
+      Plot.gridY({ stroke: COLORS.rule, strokeOpacity: 0.5 }),
       monthlyShown.length
         ? (isWater
           ? Plot.dot(monthlyShown, { x: 'date', y: 'value', r: 1.5, fill: COLORS.rule })

@@ -1,26 +1,25 @@
 // js/charts/fig3-chain.js
-// Purpose: Fig. 3 (#fig3) — hand-built SVG chain Fire → Air → Water → Fish with the selected year's values,
-//          one Spearman arrow per link from stats.json (solid and coloured when p_adj < 0.05, dashed grey
-//          otherwise), a Fire → Fish arc, and one plain-English sentence ("associated with", never "caused").
-// Exports: mount(el, ctx)
-// Owner: Claude · Task C9
+// Purpose: Fig. 3 (#fig3) — hand-built SVG chain Fire -> Air -> Water -> Fish with the selected year's values.
 
 const STYLE = `
 .f3-root { padding: 10px 12px 8px; }
-.f3-title { font-family: var(--f-serif); font-size: 15px; font-weight: 600; margin: 0 0 4px; }
-.f3-svg { display: block; width: 100%; height: auto; font-family: var(--f-sans); }
-.f3-node { cursor: pointer; }
-.f3-node circle { fill: var(--c-paper); stroke-width: 2.5; }
-.f3-node.is-focus circle { stroke-width: 4; }
+.f3-title { font-family: var(--f-serif); font-size: 16px; font-weight: 700; margin: 0 0 4px; color: var(--c-ink); }
+.f3-svg { display: block; width: 100%; height: auto; font-family: var(--f-sans); animation: emberFadeIn 190ms var(--ease-out); }
+.f3-node { cursor: pointer; transform-box: fill-box; transform-origin: center; transition: transform 170ms var(--ease-spring), opacity 160ms var(--ease-out); }
+.f3-node:hover { transform: scale(1.045); }
+.f3-node:active { transform: scale(0.95); transition-duration: 60ms; }
+.f3-node circle { fill: var(--c-paper); stroke-width: 2.5; transition: stroke-width 160ms var(--ease-out), fill 160ms var(--ease-out); }
+.f3-node.is-focus circle { stroke-width: 4; fill: var(--c-panel); }
 .f3-node.is-missing circle { stroke-dasharray: 4 3; }
-.f3-name { font-size: 13px; font-weight: 600; fill: var(--c-ink); text-anchor: middle; }
-.f3-value { font-family: var(--f-mono); font-size: 12px; fill: var(--c-ink); text-anchor: middle; }
+.f3-name { font-size: 13px; font-weight: 700; fill: var(--c-ink); text-anchor: middle; }
+.f3-value { font-family: var(--f-mono); font-size: 12.5px; font-weight: 600; fill: var(--c-ink); text-anchor: middle; }
 .f3-unit { font-size: 10px; fill: var(--c-muted); text-anchor: middle; }
 .f3-arrow { fill: none; stroke-width: 2; }
 .f3-label { font-family: var(--f-mono); font-size: 10.5px; fill: var(--c-muted); text-anchor: middle; }
-.f3-link { font-size: 11px; fill: var(--c-link); text-anchor: middle; cursor: pointer; }
-.f3-text { font-size: 13.5px; margin: 6px 0 0; }
-.f3-cap { font-size: 13px; font-style: italic; color: var(--c-muted); margin: 4px 0 0; }
+.f3-link { font-size: 11px; font-weight: 600; fill: var(--c-link); text-anchor: middle; cursor: pointer; }
+.f3-text { font-size: 13.5px; line-height: 1.55; margin: 8px 0 0; color: var(--c-ink); }
+.f3-text strong { font-weight: 600; color: var(--c-ink); }
+.f3-cap { font-size: 12.5px; font-style: italic; color: var(--c-muted); margin: 5px 0 0; }
 `;
 const NS = 'http://www.w3.org/2000/svg';
 const NODES = ['fire', 'air', 'water', 'fish'];
@@ -40,25 +39,32 @@ function svgEl(tag, attrs = {}, text) {
   return n;
 }
 
-// Two short lines so a label never gets wider than the gap between two nodes.
 const linkLabel = (l, theme) => (l.rho === null
   ? ['ρ = —', 'too few pairs']
   : [`ρ = ${l.rho.toFixed(2)}`, `lag ${l.lag} ${l.lag_unit === 'month' ? 'mo' : 'yr'} · p_adj ${theme.fmtP(l.p_adj).replace('p ', '')}`]);
 
-function sentence(meta, links, vars, theme) {
+function escHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function sentenceHtml(meta, links, vars, theme) {
   const strength = (r) => (Math.abs(r) >= 0.5 ? 'strongly' : Math.abs(r) >= 0.3 ? 'moderately' : 'weakly');
   const parts = [];
   for (const l of links) {
-    const from = vars[l.from] ? vars[l.from].label.toLowerCase() : l.from;
-    const to = vars[l.to] ? vars[l.to].label.toLowerCase() : l.to;
-    if (l.rho === null) parts.push(`${from} and ${to} have too few overlapping values to test`);
-    else if (l.p_adj !== null && l.p_adj < 0.05) {
+    const from = escHtml(vars[l.from] ? vars[l.from].label.toLowerCase() : l.from);
+    const to = escHtml(vars[l.to] ? vars[l.to].label.toLowerCase() : l.to);
+    if (l.rho === null) {
+      parts.push(`<strong>${from}</strong> and <strong>${to}</strong> have too few overlapping values to test`);
+    } else if (l.p_adj !== null && l.p_adj < 0.05) {
       const lag = l.lag ? ` ${l.lag} ${l.lag_unit}${l.lag > 1 ? 's' : ''} later` : l.lag_unit === 'month' ? ' in the same month' : ' in the same year';
-      parts.push(`higher ${from} is ${strength(l.rho)} associated with ${l.rho > 0 ? 'higher' : 'lower'} ${to}${lag} (ρ = ${l.rho.toFixed(2)}, ${theme.fmtP(l.p_adj).replace('p', 'adjusted p')})`);
-    } else parts.push(`${from} is not clearly associated with ${to} (ρ = ${l.rho.toFixed(2)}, ${theme.fmtP(l.p_adj).replace('p', 'adjusted p')})`);
+      const dir = l.rho > 0 ? 'higher' : 'lower';
+      parts.push(`higher <strong>${from}</strong> is <strong>${strength(l.rho)} associated</strong> with ${dir} <strong>${to}</strong>${lag} (<strong>ρ = ${l.rho.toFixed(2)}</strong>, ${escHtml(theme.fmtP(l.p_adj).replace('p', 'adjusted p'))})`);
+    } else {
+      parts.push(`<strong>${from}</strong> is not clearly associated with <strong>${to}</strong> (ρ = ${l.rho.toFixed(2)}, ${escHtml(theme.fmtP(l.p_adj).replace('p', 'adjusted p'))})`);
+    }
   }
   const [y0, y1] = meta.years || [2012, 2025];
-  return `In ${meta.name}, ${y0}–${y1}: ${parts.join('; ')}. Association is not causation.`;
+  return `<strong>In ${escHtml(meta.name)} (${y0}–${y1}):</strong> ${parts.join('; ')}. <strong>Association is not causation.</strong>`;
 }
 
 export async function mount(el, ctx) {
@@ -104,7 +110,7 @@ export async function mount(el, ctx) {
     svg.appendChild(defs);
     const cx = [90, 270, 450, 630];
     const cy = 92;
-    const R = 40;   // big enough that the name and the value sit inside the circle
+    const R = 40;
     const drawArrow = (d, l, target, labelXY) => {
       const sig = l && l.rho !== null && l.p_adj !== null && l.p_adj < 0.05;
       const p = svgEl('path', { class: 'f3-arrow', d, stroke: sig ? TOKEN[target] : COLORS.rule,
@@ -123,7 +129,7 @@ export async function mount(el, ctx) {
       drawArrow(`M${cx[i] + R + 4} ${cy} L${cx[i + 1] - R - 6} ${cy}`, l, NODES[i + 1], [(cx[i] + cx[i + 1]) / 2, cy - R - 24]);
     }
     if (arc) {
-      const ay = cy + R + 30;   // just under the unit captions
+      const ay = cy + R + 30;
       drawArrow(`M${cx[0]} ${ay} C ${cx[0] + 60} ${ay + 70}, ${cx[3] - 60} ${ay + 70}, ${cx[3]} ${ay + 2}`, arc, 'fish', [360, ay + 64]);
     }
     for (let i = 0; i < 4; i += 1) {
@@ -151,8 +157,8 @@ export async function mount(el, ctx) {
       });
       svg.appendChild(node);
     }
-    text.textContent = links.length ? sentence(meta, links, VARS, theme) : 'No link statistics for this selection.';
-    cap.textContent = `Fig. 3 — Spearman rank correlation per link, lag with the largest |ρ| shown; solid when Benjamini-Hochberg adjusted p < 0.05.${basin ? '' : ' Water links are tested in the case-study basin.'}`;
+    text.innerHTML = links.length ? sentenceHtml(meta, links, VARS, theme) : 'No link statistics for this selection.';
+    cap.innerHTML = `<strong>Fig. 3</strong> — Spearman rank correlation per link, lag with the largest |ρ| shown; solid when Benjamini-Hochberg adjusted p &lt; 0.05.${basin ? '' : ' Water links are tested in the case-study basin.'}`;
   }
 
   async function build(state) {

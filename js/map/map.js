@@ -1,23 +1,34 @@
 // js/map/map.js
-// Purpose: the one MapLibre map (#map) for all six scopes: globe + national outline in country view,
-//          mercator + terrain + hillshade + contours in basin view; loads the year's fires/air files and
-//          calls fires.js, water.js and air.js (each optional). Writes view: 'basin' when the case-study
-//          outline is clicked. Exposes the map as ctx.map for legend.js.
-// Exports: mount(el, ctx)
-// Owner: Claude · Task C4
+// Purpose: the one MapLibre map (#map) for all six scopes.
 
 const STYLE_URL = 'https://tiles.openfreemap.org/styles/positron';
 const DEM_URL = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
 const EMPTY = { type: 'FeatureCollection', features: [] };
 const FONT = ['Noto Sans Regular'];
+const LAYER_LOADERS = {
+  './air.js': () => import('./air.js'),
+  './water.js': () => import('./water.js'),
+  './fires.js': () => import('./fires.js'),
+};
 const CSS = `
 .map-canvas { position: absolute; inset: 0; }
-.map-back { position: absolute; top: 10px; left: 10px; z-index: 3; font-size: 13px; padding: 4px 10px; background: var(--c-paper); border: 1px solid var(--c-rule); }
+.map-back {
+  position: absolute; top: 10px; left: 10px; z-index: 3; font-size: 13px; font-weight: 600;
+  padding: 5px 11px; background: var(--c-paper); border: 1px solid var(--c-edge);
+  transition: background-color 160ms var(--ease-out), border-color 160ms var(--ease-out), transform 100ms var(--ease-spring);
+}
+.map-back:hover { background: var(--c-panel); border-color: var(--c-edge-hover); }
+.map-back:active { transform: scale(0.95); transition-duration: 60ms; }
 .map-back[hidden] { display: none; }
-.map-note { position: absolute; top: 10px; right: 52px; z-index: 3; font-size: 12px; color: var(--c-muted); background: var(--c-paper); border: 1px solid var(--c-rule); padding: 2px 8px; border-radius: 2px; }
+.map-note {
+  position: absolute; top: 10px; right: 52px; z-index: 3; font-size: 12px; font-weight: 500;
+  color: var(--c-muted); background: rgba(255, 255, 255, 0.94); border: 1px solid var(--c-edge);
+  padding: 4px 10px; border-radius: 8px; backdrop-filter: blur(4px);
+}
+.map-note strong { color: var(--c-ink); font-weight: 600; }
 .map-note[hidden] { display: none; }
-#map .maplibregl-popup-content { font-family: var(--f-mono); font-size: 12px; color: var(--c-ink); padding: 6px 9px; border-radius: 2px; border: 1px solid var(--c-rule); box-shadow: none; }
-#map .maplibregl-ctrl-group { border-radius: 2px; box-shadow: none; border: 1px solid var(--c-rule); }
+#map .maplibregl-popup-content { font-family: var(--f-mono); font-size: 12px; color: var(--c-ink); padding: 7px 10px; border-radius: 8px; border: 1px solid var(--c-edge); box-shadow: 0 4px 12px rgba(15, 23, 42, 0.1); }
+#map .maplibregl-ctrl-group { border-radius: 8px; box-shadow: none; border: 1px solid var(--c-edge); }
 #map .maplibregl-ctrl-attrib { font-size: 10px; }
 `;
 
@@ -110,7 +121,7 @@ export async function mount(el, ctx) {
 
   async function loadLayer(path) {
     try {
-      const mod = await import(path);
+      const mod = await LAYER_LOADERS[path]();
       const api = mod.addLayer(map, ctx);
       if (api && typeof api.update === 'function') layers.push(api);
     } catch (err) {
@@ -133,9 +144,13 @@ export async function mount(el, ctx) {
     back.hidden = !basin;
     back.textContent = `← Back to ${country ? country.shortName : 'country'}`;
     note.hidden = basin || !meta || !meta.basin;
-    note.textContent = meta && meta.basin ? `Click the orange outline to open the ${meta.basin.shortName} case study` : '';
+    if (meta && meta.basin) {
+      note.innerHTML = `Click the orange outline to open the <strong>${meta.basin.shortName}</strong> case study`;
+    } else {
+      note.textContent = '';
+    }
     const camera = meta ? meta.camera : cam;
-    if (animate) map.flyTo({ ...camera, duration: 1200, essential: true });
+    if (animate) map.flyTo({ ...camera, duration: 950, essential: true });
     else map.jumpTo(camera);
   }
 

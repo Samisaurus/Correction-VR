@@ -1,45 +1,76 @@
 // js/ui/slider.js
 // Purpose: the year slider across the top (#year-slider): play/pause, current year, native range input
 //          with year labels and fire-year markers from the current scope's meta.eventYears.
-//          Writes year and playing; stops playback when countryId or view changes.
-// Exports: mount(el, ctx)
-// Owner: GPT-UI · Task G2 (built here against the Session Primer v2)
 
 const STYLE = `
-.sld-root { display: flex; align-items: center; gap: 14px; }
-.sld-play { flex: 0 0 32px; width: 32px; height: 32px; padding: 0; border-radius: 50%; border: 1px solid var(--c-rule);
-  background: var(--c-paper); color: var(--c-ink); display: inline-flex; align-items: center; justify-content: center; }
-.sld-play:hover { background: var(--c-panel); }
+.sld-root { display: flex; align-items: center; gap: 16px; }
+.sld-play {
+  flex: 0 0 34px; width: 34px; height: 34px; padding: 0; border-radius: 50%;
+  border: 1px solid var(--c-rule); background: var(--c-paper); color: var(--c-ink);
+  display: inline-flex; align-items: center; justify-content: center;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+  transition:
+    background-color 160ms var(--ease-out),
+    border-color 160ms var(--ease-out),
+    box-shadow 160ms var(--ease-out),
+    transform 120ms var(--ease-spring);
+}
+.sld-play:hover { background: var(--c-panel); border-color: var(--c-edge-hover); transform: scale(1.06); }
+.sld-play:active { transform: scale(0.93); transition-duration: 60ms; }
+.sld-play[aria-pressed="true"] { border-color: var(--c-link); color: var(--c-link); }
 .sld-play svg { width: 14px; height: 14px; fill: currentColor; }
-.sld-year { font-family: var(--f-mono); font-size: 22px; font-weight: 500; line-height: 1; color: var(--c-ink);
-  min-width: 4ch; font-variant-numeric: tabular-nums; }
+.sld-year {
+  font-family: var(--f-mono); font-size: 22px; font-weight: 700; line-height: 1; color: var(--c-ink);
+  min-width: 4ch; font-variant-numeric: tabular-nums; letter-spacing: -0.02em;
+}
 .sld-track { position: relative; flex: 1 1 auto; min-width: 0; height: 48px; }
-.sld-rail, .sld-fill { position: absolute; top: 13px; height: 6px; border-radius: 2px; pointer-events: none; }
-.sld-rail { left: 8px; right: 8px; background: var(--c-rule); }
-.sld-fill { left: 8px; width: 0; background: var(--c-link); }
-.sld-input { position: absolute; left: 0; top: 0; width: 100%; height: 32px; margin: 0; background: transparent;
-  -webkit-appearance: none; appearance: none; cursor: pointer; }
+.sld-rail, .sld-fill { position: absolute; top: 13px; height: 6px; border-radius: 3px; pointer-events: none; }
+.sld-rail { left: 8px; right: 8px; background: var(--c-edge); }
+.sld-fill {
+  left: 8px; width: 0; background: var(--c-link);
+  transition: width 220ms var(--ease-out);
+}
+.sld-input {
+  position: absolute; left: 0; top: 0; width: 100%; height: 32px; margin: 0; background: transparent;
+  -webkit-appearance: none; appearance: none; cursor: pointer;
+}
 .sld-input::-webkit-slider-runnable-track { height: 6px; background: transparent; border: 0; }
 .sld-input::-moz-range-track { height: 6px; background: transparent; border: 0; }
-.sld-input::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; margin-top: -5px;
-  border-radius: 50%; background: var(--c-paper); border: 2px solid var(--c-year); }
-.sld-input::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: var(--c-paper); border: 2px solid var(--c-year); }
+.sld-input::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: 16px; height: 16px; margin-top: -5px;
+  border-radius: 50%; background: var(--c-paper); border: 2.5px solid var(--c-year);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.18);
+  transition: transform 150ms var(--ease-spring), box-shadow 150ms var(--ease-out);
+}
+.sld-input:hover::-webkit-slider-thumb { transform: scale(1.18); box-shadow: 0 2px 7px rgba(15, 23, 42, 0.24); }
+.sld-input:active::-webkit-slider-thumb { transform: scale(0.96); }
+.sld-input::-moz-range-thumb {
+  width: 12px; height: 12px; border-radius: 50%; background: var(--c-paper); border: 2.5px solid var(--c-year);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.18);
+  transition: transform 150ms var(--ease-spring), box-shadow 150ms var(--ease-out);
+}
+.sld-input:hover::-moz-range-thumb { transform: scale(1.18); }
+.sld-input:active::-moz-range-thumb { transform: scale(0.96); }
 .sld-input:focus-visible { outline: none; }
 .sld-input:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--c-link); outline-offset: 2px; }
 .sld-input:focus-visible::-moz-range-thumb { outline: 2px solid var(--c-link); outline-offset: 2px; }
-.sld-mark { position: absolute; top: 21px; transform: translateX(-50%); width: 0; height: 0; pointer-events: none;
-  border-left: 4px solid transparent; border-right: 4px solid transparent; border-bottom: 7px solid var(--c-fire); }
+.sld-mark {
+  position: absolute; top: 21px; transform: translateX(-50%); width: 0; height: 0; pointer-events: none;
+  border-left: 4px solid transparent; border-right: 4px solid transparent; border-bottom: 7px solid var(--c-fire);
+}
 .sld-labels { position: absolute; left: 0; right: 0; top: 32px; height: 14px; }
-.sld-label { position: absolute; transform: translateX(-50%); font-family: var(--f-mono); font-size: 11px; line-height: 1;
-  color: var(--c-muted); white-space: nowrap; }
-.sld-label.is-selected { color: var(--c-ink); font-weight: 600; }
+.sld-label {
+  position: absolute; transform: translateX(-50%); font-family: var(--f-mono); font-size: 11px; line-height: 1;
+  color: var(--c-muted); white-space: nowrap; transition: color 160ms var(--ease-out), font-weight 160ms var(--ease-out);
+}
+.sld-label.is-selected { color: var(--c-ink); font-weight: 700; }
 @media (max-width: 640px) { .sld-label:nth-child(even) { display: none; } .sld-year { font-size: 18px; } .sld-root { gap: 10px; } }
 `;
 
 const PLAY_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9-5.5z"/></svg>';
 const PAUSE_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 2.5h3.2v11H3.5zM9.3 2.5h3.2v11H9.3z"/></svg>';
 const STEP_MS = 800;
-const cleanups = new WeakMap(); // el -> cleanup() from a previous mount
+const cleanups = new WeakMap();
 
 function injectStyle() {
   if (document.querySelector('style[data-module="sld"]')) return;
@@ -158,7 +189,8 @@ export async function mount(el, ctx) {
     input.value = String(year);
     input.setAttribute('aria-valuetext', `${year}${state.playing ? ', playing' : ''}`);
     yearEl.textContent = String(year);
-    fill.style.width = pos(year, min, max);
+    const pct = max > min ? (year - min) / (max - min) : 0;
+    fill.style.width = `calc((100% - 16px) * ${pct})`;
     for (const [y, l] of labelEls) l.classList.toggle('is-selected', y === year);
     play.innerHTML = state.playing ? PAUSE_ICON : PLAY_ICON;
     play.setAttribute('aria-label', state.playing ? 'Pause' : 'Play through the years');
