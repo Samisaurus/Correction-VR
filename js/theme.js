@@ -15,9 +15,17 @@ export const COLORS = Object.freeze({
   panel: '#F6F8FA',
   link: '#2B5FC7',
   paper: '#FFFFFF',
-  contour: '#8C7B6B',
+  contour: '#6E6256',
+  contourMinor: '#8E8174',
   country: '#202122',
   basin: '#E69F00',
+});
+
+/** Distinct cartographic colours for the three countries on the map. */
+export const COUNTRY_COLORS = Object.freeze({
+  canada: '#2A9D8F',
+  usa: '#C84B59',
+  russia: '#3D6CB9',
 });
 
 /** Variable table. ids are fixed by the contract; digits = decimals shown by fmt(). */

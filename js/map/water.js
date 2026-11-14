@@ -1,12 +1,8 @@
 // js/map/water.js
-// Purpose: rivers (sky blue, width by stream order), river segments near that year's fires (purple, on top),
-//          and in basin scope the water measurement box shaded by that year's Kd490 with a popup.
-//          Own ids: water-*.
-// Exports: addLayer(map, ctx) -> { update(state, payload) }
-// Owner: Claude · Task C6
+// Purpose: rivers, river segments near fires, and basin water measurement box with optimized updates.
 
 const EMPTY = { type: 'FeatureCollection', features: [] };
-const WIDTH = ['interpolate', ['linear'], ['get', 'order'], 1, 0.5, 4, 1, 6, 1.6, 9, 3];
+const WIDTH = ['interpolate', ['linear'], ['get', 'order'], 1, 0.6, 4, 1.15, 6, 1.8, 9, 3.2];
 
 export function addLayer(map, ctx) {
   const { data, theme } = ctx;
@@ -16,19 +12,22 @@ export function addLayer(map, ctx) {
   map.addLayer({ id: 'water-box', type: 'fill', source: 'water-geo', filter: ['==', ['get', 'kind'], 'water'],
     paint: { 'fill-color': COLORS.water, 'fill-opacity': 0.3 } });
   map.addLayer({ id: 'water-box-line', type: 'line', source: 'water-geo', filter: ['==', ['get', 'kind'], 'water'],
-    paint: { 'line-color': COLORS.water, 'line-width': 1 } });
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': COLORS.water, 'line-width': 1.4 } });
   map.addLayer({ id: 'water-rivers', type: 'line', source: 'water-rivers',
     layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': COLORS.river, 'line-width': WIDTH } });
   map.addLayer({ id: 'water-polluted', type: 'line', source: 'water-rivers', filter: ['in', 2000, ['get', 'nearFire']],
     layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': COLORS.polluted, 'line-width': ['+', WIDTH, 1.5] } });
 
   const popup = new window.maplibregl.Popup({ closeButton: true, closeOnClick: true, offset: 6 });
-  let info = {}; // water body id -> { name, kd, chl }
+  let info = {};
+  let lastScopeKey = null;
+
   map.on('click', 'water-box', (e) => {
     const f = e.features && e.features[0];
     if (!f) return;
     const i = info[f.properties.id] || { name: f.properties.name, kd: null, chl: null };
-    popup.setLngLat(e.lngLat).setHTML(`<strong>${i.name}</strong><br>Kd490 ${fmt(i.kd, 'kd490')} 1/m · Chl-a ${fmt(i.chl, 'chlor_a')} mg/m3<br>`
+    popup.setLngLat(e.lngLat).setHTML(`<strong>${i.name}</strong><br>Kd490 ${fmt(i.kd, 'kd490')} m⁻¹ · Chl-a ${fmt(i.chl, 'chlor_a')} mg/m³<br>`
       + `<span style="opacity:.75">Satellite average over this box</span>`).addTo(map);
   });
   map.on('mouseenter', 'water-box', () => { map.getCanvas().style.cursor = 'pointer'; });
@@ -42,12 +41,19 @@ export function addLayer(map, ctx) {
   return {
     update(state, payload) {
       const scope = payload && payload.scope;
-      const rivers = scope && scope.rivers && Array.isArray(scope.rivers.features) ? scope.rivers : EMPTY;
-      map.getSource('water-rivers').setData(rivers);
-      map.setFilter('water-polluted', ['in', Number(state.year), ['get', 'nearFire']]);
+      const scopeKey = scope && scope.meta ? scope.meta.path : null;
       const geo = scope && scope.geo && Array.isArray(scope.geo.features) ? scope.geo : EMPTY;
       const boxes = geo.features.filter((f) => f.properties && f.properties.kind === 'water');
-      map.getSource('water-geo').setData({ type: 'FeatureCollection', features: boxes });
+
+      // Only upload static river and water-box geometry when scope actually changes
+      if (scopeKey !== lastScopeKey) {
+        lastScopeKey = scopeKey;
+        const rivers = scope && scope.rivers && Array.isArray(scope.rivers.features) ? scope.rivers : EMPTY;
+        map.getSource('water-rivers').setData(rivers);
+        map.getSource('water-geo').setData({ type: 'FeatureCollection', features: boxes });
+      }
+
+      map.setFilter('water-polluted', ['in', Number(state.year), ['get', 'nearFire']]);
       info = {};
       const match = ['match', ['get', 'id']];
       for (const f of boxes) {

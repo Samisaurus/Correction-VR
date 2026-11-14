@@ -1,10 +1,10 @@
 // js/map/legend.js
-// Purpose: compact legend overlay (#map-legend).
+// Purpose: compact legend overlay (#map-legend) with 3-country color swatches and smooth haze key.
 
 const STYLE = `
 .leg-box {
   background: rgba(255, 255, 255, 0.96); border: 1px solid var(--c-edge); border-radius: 10px;
-  font-size: 11.5px; line-height: 1.35; min-width: 176px; max-width: 248px; backdrop-filter: blur(4px);
+  font-size: 11.5px; line-height: 1.35; min-width: 184px; max-width: 256px; backdrop-filter: blur(4px);
 }
 .leg-title {
   display: flex; justify-content: space-between; align-items: center; gap: 8px;
@@ -24,8 +24,11 @@ const STYLE = `
 .leg-polluted { stroke: var(--c-polluted); stroke-width: 3; fill: none; }
 .leg-aod { fill: var(--c-smoke); }
 .leg-water { fill: var(--c-water); fill-opacity: 0.4; stroke: var(--c-water); stroke-width: 1; }
-.leg-contour { stroke: var(--c-contour); stroke-width: 1; fill: none; }
+.leg-contour { stroke: var(--c-contour); stroke-width: 1.1; fill: none; }
 .leg-basin { stroke: var(--c-basin); stroke-width: 1.5; stroke-dasharray: 3 2; fill: var(--c-basin); fill-opacity: 0.12; }
+.leg-countries { display: flex; flex-wrap: wrap; gap: 6px 10px; padding-top: 5px; margin-top: 5px; border-top: 1px solid var(--c-edge); font-size: 11px; }
+.leg-cchip { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; color: var(--c-ink); }
+.leg-swatch { width: 9px; height: 9px; border-radius: 3px; border: 1px solid rgba(0,0,0,0.2); display: inline-block; }
 .leg-mock { color: var(--c-fire); font-family: var(--f-mono); font-size: 11px; font-weight: 600; margin-top: 5px; }
 .leg-muted { color: var(--c-muted); }
 `;
@@ -59,7 +62,8 @@ function row(graphic, text) {
 
 export async function mount(el, ctx) {
   injectStyle();
-  const { store, data } = ctx;
+  const { store, data, theme } = ctx;
+  const { COUNTRY_COLORS } = theme;
   const regions = await data.getRegions();
   const box = document.createElement('div');
   box.className = 'leg-box';
@@ -100,13 +104,31 @@ export async function mount(el, ctx) {
       `<strong>Fire cells:</strong> 10 / 100 / 1,000 detections<br><span class="leg-muted">${basin ? '0.1°' : '0.5°'} cells, opacity = fire power</span>`));
     body.appendChild(row(svg(28, 10, '<path class="leg-river" d="M1 7 C 8 2, 14 10, 27 3"/>'), '<strong>River</strong> (width = stream order)'));
     body.appendChild(row(svg(28, 10, '<path class="leg-polluted" d="M1 7 C 8 2, 14 10, 27 3"/>'), `<strong>River near fires</strong> in ${state.year} (&lt; ${basin ? 25 : 50} km)`));
-    body.appendChild(row(svg(46, 12, '<rect class="leg-aod" x="0" y="1" width="14" height="10" fill-opacity="0.04"/><rect class="leg-aod" x="16" y="1" width="14" height="10" fill-opacity="0.22"/><rect class="leg-aod" x="32" y="1" width="14" height="10" fill-opacity="0.45"/>'),
-      '<strong>AOD haze:</strong> 0 / 0.3 / 0.6 (May–Sep mean)'));
+    body.appendChild(row(svg(46, 12,
+      '<defs><linearGradient id="leg-smoke-g" x1="0" x2="1"><stop offset="0%" stop-color="#8A7F72" stop-opacity="0.06"/><stop offset="50%" stop-color="#7E7163" stop-opacity="0.32"/><stop offset="100%" stop-color="#4E4238" stop-opacity="0.58"/></linearGradient></defs><rect x="0" y="1" width="46" height="10" rx="5" fill="url(#leg-smoke-g)"/>'),
+      '<strong>Smoke plume (AOD):</strong> 0 → 0.6+'));
     if (basin) {
-      body.appendChild(row(svg(28, 12, '<rect class="leg-water" x="1" y="1" width="26" height="10"/>'), '<strong>Water box</strong> (Kd490 shade)'));
+      body.appendChild(row(svg(28, 12, '<rect class="leg-water" x="1" y="1" width="26" height="10" rx="2"/>'), '<strong>Water box</strong> (Kd490 shade)'));
       body.appendChild(row(svg(28, 12, '<path class="leg-contour" d="M1 9 C 6 2, 10 2, 14 7 S 24 11, 27 3"/>'), '<strong>Contour lines</strong> (terrain)'));
     } else {
-      body.appendChild(row(svg(28, 14, '<path class="leg-basin" d="M3 11 L6 3 L22 2 L26 9 L18 13 Z"/>'), `<strong>Case-study outline</strong>${meta && meta.basin ? ` (${meta.basin.shortName})` : ''}: click to zoom`));
+      body.appendChild(row(svg(28, 14, '<path class="leg-basin" d="M3 11 Q 6 3 22 2 Q 26 9 18 13 Z"/>'), `<strong>Case-study outline</strong>${meta && meta.basin ? ` (${meta.basin.shortName})` : ''}: click to zoom`));
+      body.appendChild(row(svg(28, 12, '<path class="leg-contour" d="M1 9 C 6 2, 10 2, 14 7 S 24 11, 27 3"/>'), '<strong>Topographic contours</strong> (zoom in)'));
+    }
+    if (regions && Array.isArray(regions.countries) && COUNTRY_COLORS) {
+      const cRow = document.createElement('div');
+      cRow.className = 'leg-countries';
+      for (const c of regions.countries) {
+        const chip = document.createElement('span');
+        chip.className = 'leg-cchip';
+        const sw = document.createElement('span');
+        sw.className = 'leg-swatch';
+        const col = COUNTRY_COLORS[c.id] || '#54595D';
+        sw.style.backgroundColor = col;
+        sw.style.borderColor = col;
+        chip.append(sw, document.createTextNode(c.shortName || c.id));
+        cRow.appendChild(chip);
+      }
+      body.appendChild(cRow);
     }
     if (regions && regions.mock === true) {
       const m = document.createElement('div');
