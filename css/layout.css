@@ -1,8 +1,14 @@
-/* css/layout.css — the five-row page grid (Claude · C1). Only this file positions the slots.
+/* css/layout.css — the five-row page grid and the box skin (Claude · C1).
+   Only this file positions the slots.
    Desktop >= 1100 px: header | slider | map (7/12, 560 px) + fig1/fig2 stacked (5/12) |
    infobox (5/12) + fig3 (7/12) | methods (760 px article column, centred).
    900–1099 px: map full width, fig1 + fig2 side by side.  < 900 px: one column in the order
-   header, slider, map, infobox, fig1, fig2, fig3, methods. No shadows, no gradients, radius <= 2 px. */
+   header, slider, map, infobox, fig1, fig2, fig3, methods.
+
+   Box skin: every box is a rounded, thick-framed sheet of warm paper with faint basketball line art behind its
+   content (css/court-art.svg). The data windows (map, fig1, fig2, fig3, infobox) get a pastel frame that follows the
+   selected country (green Canada, red USA, blue Russia) and turns one shade darker in the case-study view. The year
+   slider keeps the neutral frame. Colours live in css/tokens.css; main.js sets data-country / data-view on <html>. */
 
 .page {
   max-width: 1440px;
@@ -10,6 +16,7 @@
   padding: 0 16px 56px;
   display: grid;
   gap: 16px;
+  align-items: stretch;
   grid-template-columns: repeat(12, minmax(0, 1fr));
   grid-template-areas:
     "header header header header header header header header header header header header"
@@ -20,39 +27,119 @@
     "methods methods methods methods methods methods methods methods methods methods methods methods";
 }
 
+/* ---- frame colour of the data windows ---------------------------------------------------------------------- */
+
+html {
+  --frame: var(--frame-canada);
+  --frame-deep: var(--frame-canada-deep);
+}
+html[data-country="canada"] { --frame: var(--frame-canada); --frame-deep: var(--frame-canada-deep); }
+html[data-country="usa"]    { --frame: var(--frame-usa);    --frame-deep: var(--frame-usa-deep); }
+html[data-country="russia"] { --frame: var(--frame-russia); --frame-deep: var(--frame-russia-deep); }
+
+html { --frame-now: var(--frame); }
+html[data-view="basin"] { --frame-now: var(--frame-deep); }
+
+/* ---- the box skin ------------------------------------------------------------------------------------------ */
+
 .slot {
   min-width: 0;
-  border: 1px solid var(--c-rule);
-  border-radius: 2px;
-  background: var(--c-paper);
   position: relative;
+  isolation: isolate;           /* keeps rounded clipping reliable around the map canvas */
+  overflow: hidden;             /* nothing protrudes past the rounded frame */
+  border: var(--bw) solid var(--c-edge);
+  border-radius: var(--r-box);
+  background-color: var(--c-sheet);
+  background-image: url("./court-art.svg");
+  background-size: 480px 480px;
+  background-position: center;
+  transition: border-color 0.25s ease;
 }
 
-#site-header { grid-area: header; border: 0; border-bottom: 1px solid var(--c-rule); border-radius: 0; padding: 14px 0 10px; }
-#year-slider { grid-area: slider; padding: 10px 16px 12px; background: var(--c-panel); }
-#map { grid-area: map; min-height: 560px; overflow: hidden; }
+#map, #fig1, #fig2, #fig3, #infobox { border-color: var(--frame-now); }
+
+/* ---- slots -------------------------------------------------------------------------------------------------- */
+
+#site-header {
+  grid-area: header;
+  overflow: visible;
+  border: 0;
+  border-bottom: 1px solid var(--c-rule);
+  border-radius: 0;
+  background: none;
+  padding: 14px 0 12px;
+}
+#site-header .hdr-root { align-items: center; }
+#site-header .hdr-controls { align-items: center; gap: 6px 14px; }   /* equal space either side of the divider */
+
+#year-slider { grid-area: slider; padding: 12px 22px 12px; }
+#map { grid-area: map; min-height: 560px; }
 #fig1 { grid-area: fig1; min-height: 272px; }
 #fig2 { grid-area: fig2; min-height: 272px; }
 #infobox { grid-area: infobox; }
-#fig3 { grid-area: fig3; min-height: 260px; }
+#fig3 { grid-area: fig3; min-height: 260px; display: flex; flex-direction: column; justify-content: center; }
 #methods {
   grid-area: methods;
+  overflow: visible;
   border: 0;
   border-radius: 0;
+  background: none;
   max-width: 760px;
   width: 100%;
   margin: 16px auto 0;
   padding: 0 0 24px;
 }
 
+/* ---- year slider: play button, year and rail share one centre line, thumb matches the 8 px rail inset ---------- */
+
+#year-slider .sld-root { align-items: flex-start; }
+#year-slider .sld-year { height: 32px; display: flex; align-items: center; }
+#year-slider .sld-input::-webkit-slider-thumb { box-sizing: border-box; width: 16px; height: 16px; }
+#year-slider .sld-input::-moz-range-thumb { box-sizing: border-box; width: 16px; height: 16px; }
+
+/* ---- figures: comfortable inner padding so nothing touches the rounded corners -------------------------------- */
+
+#fig1 .f1-root, #fig2 .f2-root, #fig3 .f3-root { padding: 16px 20px 14px; }
+#fig1 .f1-plot, #fig2 .f2-plot { min-height: 248px; }
+#fig1 .f1-seg { border-radius: 8px; }
+#fig2 .f2-chip { border-radius: 8px; }
+
+/* ---- infobox: the slot carries the frame, so the inner box drops its own border ------------------------------ */
+
+#infobox .ibx-box { border: 0; border-radius: 0; background: transparent; }
+#infobox .ibx-caption { padding: 14px 20px 10px; border-bottom: 2px solid var(--c-edge); }
+#infobox .ibx-badge { right: 18px; top: 14px; border-radius: 6px; }
+#infobox .ibx-row th, #infobox .ibx-row td { border-bottom-color: var(--c-edge); }
+#infobox .ibx-row th { padding-left: 16px; }
+#infobox .ibx-value { white-space: normal; overflow-wrap: break-word; }   /* long units wrap instead of running into the sparkline */
+#infobox .ibx-num { white-space: nowrap; }
+#infobox .ibx-spark { width: 96px; padding-right: 18px; }                /* wide enough for the 72 px sparkline */
+#infobox .ibx-foot { padding: 10px 20px 12px; border-top: 2px solid var(--c-edge); }
+
+/* ---- map overlays ---------------------------------------------------------------------------------------------- */
+
 /* #map-legend is a slot inside the map frame: bottom-left overlay */
 #map-legend {
   position: absolute;
-  left: 12px;
-  bottom: 12px;
+  left: 14px;
+  bottom: 40px;                 /* clears MapLibre's attribution strip */
   z-index: 3;
-  max-width: calc(100% - 24px);
+  max-width: calc(100% - 28px);
 }
+#map-legend .leg-box { border-radius: 10px; overflow: hidden; }
+#map .map-back { border-radius: 10px; top: 14px; left: 14px; }
+#map .map-note { border-radius: 10px; top: 14px; }
+#map .maplibregl-ctrl-group { border-radius: 10px; overflow: hidden; }
+#map .maplibregl-popup-content { border-radius: 8px; }
+
+/* ---- methods article: nothing wider than the column ------------------------------------------------------------ */
+
+#methods img, #methods svg { max-width: 100%; height: auto; }
+#methods table { display: block; max-width: 100%; overflow-x: auto; }
+#methods pre { max-width: 100%; overflow-x: auto; }
+#methods p, #methods li { overflow-wrap: break-word; }
+
+/* ---- breakpoints ----------------------------------------------------------------------------------------------- */
 
 @media (max-width: 1099px) {
   .page {
@@ -61,13 +148,15 @@
       "slider slider slider slider slider slider slider slider slider slider slider slider"
       "map    map    map    map    map    map    map    map    map    map    map    map"
       "fig1   fig1   fig1   fig1   fig1   fig1   fig2   fig2   fig2   fig2   fig2   fig2"
-      "infobox infobox infobox infobox infobox fig3 fig3 fig3 fig3 fig3 fig3 fig3"
+      "infobox infobox infobox infobox infobox infobox infobox infobox infobox infobox infobox infobox"
+      "fig3   fig3   fig3   fig3   fig3   fig3   fig3   fig3   fig3   fig3   fig3   fig3"
       "methods methods methods methods methods methods methods methods methods methods methods methods";
   }
   #map { min-height: 480px; }
 }
 
 @media (max-width: 899px) {
+  :root { --bw: 3px; --r-box: 14px; }
   .page {
     gap: 12px;
     padding: 0 12px 40px;
@@ -83,6 +172,16 @@
       "methods";
   }
   #map { min-height: 420px; }
-  #year-slider { padding: 8px 10px 10px; }
-  #map-legend { left: 8px; bottom: 8px; }
+  #year-slider { padding: 10px 16px 10px; }
+  #map-legend { left: 10px; bottom: 66px; }   /* attribution wraps to two lines on phones */
+  #fig1 .f1-root, #fig2 .f2-root, #fig3 .f3-root { padding: 14px 14px 12px; }
+  #infobox .ibx-caption { padding: 12px 14px 8px; }
+  #infobox .ibx-badge { right: 12px; top: 12px; }
+  #infobox .ibx-foot { padding: 8px 14px 10px; }
+}
+
+@media (max-width: 480px) {
+  #infobox .ibx-spark { width: 74px; padding-right: 12px; }
+  #infobox .ibx-spark svg { width: 56px; }
+  #infobox .ibx-row th { padding-left: 12px; }
 }
