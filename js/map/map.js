@@ -59,10 +59,18 @@ function addTerrain(map, COLORS) {
     maxzoom: 12,
     attribution: 'Terrain: AWS Terrain Tiles',
   });
+  map.addSource('map-hillshade-dem', {
+    type: 'raster-dem',
+    tiles: [d ? d.sharedDemProtocolUrl : DEM_URL],
+    encoding: 'terrarium',
+    tileSize: 256,
+    maxzoom: 12,
+  });
   map.addLayer({
     id: 'map-hillshade',
     type: 'hillshade',
-    source: 'map-dem',
+    source: 'map-hillshade-dem',
+    layout: { visibility: 'none' },
     paint: {
       'hillshade-exaggeration': 0.42,
       'hillshade-shadow-color': COLORS.contour,
@@ -263,6 +271,9 @@ export async function mount(el, ctx) {
     const basin = state.view === 'basin';
     if (!basin) map.setTerrain(null);
     map.setProjection({ type: basin ? 'mercator' : 'globe' });
+    if (map.getLayer('map-hillshade')) {
+      map.setLayoutProperty('map-hillshade', 'visibility', basin ? 'visible' : 'none');
+    }
     if (basin && map.getSource('map-dem')) map.setTerrain({ source: 'map-dem', exaggeration: 1.7 });
 
     if (map.getLayer('map-contour-minor')) {

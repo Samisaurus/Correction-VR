@@ -23,18 +23,18 @@
   position: relative;
   isolation: isolate;
   overflow: hidden;
-  border: var(--bw) solid var(--c-edge);
+  border: var(--bw) solid var(--c-win-border, var(--c-edge));
   border-radius: var(--r-box);
   background-color: var(--c-paper);
   background-image: none;
   box-shadow: var(--shadow-card);
   transition:
-    border-color 220ms var(--ease-out),
+    border-color 240ms var(--ease-out),
     box-shadow 220ms var(--ease-out);
 }
 
 #map:hover, #fig1:hover, #fig2:hover, #fig3:hover, #infobox:hover, #year-slider:hover {
-  border-color: var(--c-edge-hover);
+  border-color: var(--c-win-border-hover, var(--c-edge-hover));
   box-shadow: var(--shadow-card-hover);
 }
 
@@ -44,7 +44,7 @@
   grid-area: header;
   overflow: visible;
   border: 0;
-  border-bottom: 1px solid var(--c-edge);
+  border-bottom: 2px solid var(--c-win-border, var(--c-edge));
   border-radius: 0;
   background: transparent;
   box-shadow: none;
@@ -71,8 +71,8 @@
 
 #fig1 .f1-root, #fig2 .f2-root, #fig3 .f3-root { padding: 16px 20px 14px; }
 #fig1 .f1-plot, #fig2 .f2-plot { min-height: 248px; }
-#fig1 .f1-seg { border-radius: 8px; }
-#fig2 .f2-chip { border-radius: 8px; }
+#fig1 .f1-seg { border-radius: 6px; }
+#fig2 .f2-chip { border-radius: 6px; }
 
 /* ---- infobox -------------------------------------------------------------------------------------------- */
 
@@ -95,11 +95,11 @@
   z-index: 3;
   max-width: calc(100% - 28px);
 }
-#map-legend .leg-box { border-radius: 10px; overflow: hidden; box-shadow: 0 2px 10px rgba(15, 23, 42, 0.08); }
-#map .map-back { border-radius: 10px; top: 14px; left: 14px; box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08); }
-#map .map-note { border-radius: 10px; top: 14px; box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06); }
-#map .maplibregl-ctrl-group { border-radius: 10px; overflow: hidden; box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08); }
-#map .maplibregl-popup-content { border-radius: 8px; }
+#map-legend .leg-box { border-radius: 6px; overflow: hidden; box-shadow: 0 2px 10px rgba(15, 23, 42, 0.08); }
+#map .map-back { border-radius: 6px; top: 14px; left: 14px; box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08); }
+#map .map-note { border-radius: 6px; top: 14px; box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06); }
+#map .maplibregl-ctrl-group { border-radius: 6px; overflow: hidden; box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08); }
+#map .maplibregl-popup-content { border-radius: 6px; }
 
 /* ---- breakpoints ---------------------------------------------------------------------------------------- */
 
@@ -117,7 +117,7 @@
 }
 
 @media (max-width: 899px) {
-  :root { --r-box: 12px; }
+  :root { --r-box: 5px; }
   .page {
     gap: 12px;
     padding: 0 12px 24px;

@@ -96,8 +96,8 @@ export async function mount(el, ctx) {
     const k = basin ? 0.75 : 0.4;
     const r = (n) => (1 + k * Math.sqrt(n)).toFixed(1);
     body.appendChild(row(
-      svg(64, 26, `<circle class="leg-fire" cx="8" cy="13" r="${r(10)}"/><circle class="leg-fire" cx="26" cy="13" r="${r(100)}"/><circle class="leg-fire" cx="52" cy="13" r="${r(1000)}"/>`),
-      `<strong>Fire cells:</strong> 10 / 100 / 1,000 detections<br><span class="leg-muted">${basin ? '0.1°' : '0.5°'} cells, opacity = fire power</span>`,
+      svg(64, 26, `<circle cx="8" cy="13" r="${r(10)}" fill="#FACC15" fill-opacity="0.82"/><circle cx="26" cy="13" r="${r(100)}" fill="#EA580C" fill-opacity="0.88"/><circle cx="52" cy="13" r="${r(1000)}" fill="#991B1B" fill-opacity="0.94"/>`),
+      `<strong>Fire density:</strong> yellow → red / 10 km²<br><span class="leg-muted">${basin ? '0.1°' : '0.5°'} grid, size = detections</span>`,
     ));
     body.appendChild(row(
       svg(46, 12,

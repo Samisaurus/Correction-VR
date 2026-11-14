@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { prepareRivers, scoreRiversForYear } from './river-pollution.js';
+import { enrichAndSortFires } from './fire-density.js';
 import { annualSeries, annualValue, annualMedian, monthlySeries } from '../data.js';
 
 test('scoreRiversForYear keeps low-exposure rivers blue (0) and high-exposure rivers purple (near 1)', () => {
@@ -111,4 +112,22 @@ test('indexed series helpers return accurate O(1) values and median', () => {
   assert.equal(annualMedian(series, 'fire_frp'), 200);
   assert.equal(annualSeries(series, 'fire_frp').length, 4);
   assert.equal(monthlySeries(series, 'fire_frp').length, 2);
+});
+
+test('enrichAndSortFires computes detections per 10 sq km and sorts ascending by density', () => {
+  const fc = {
+    type: 'FeatureCollection',
+    features: [
+      { type: 'Feature', geometry: { type: 'Point', coordinates: [-120, 55] }, properties: { count: 2000 } },
+      { type: 'Feature', geometry: { type: 'Point', coordinates: [-100, 55] }, properties: { count: 100 } },
+      { type: 'Feature', geometry: { type: 'Point', coordinates: [-110, 55] }, properties: { count: 600 } },
+    ],
+  };
+  const sorted = enrichAndSortFires(fc, { isBasin: false });
+  const counts = sorted.features.map((f) => f.properties.count);
+  const densities = sorted.features.map((f) => f.properties.density_10km2);
+  assert.deepEqual(counts, [100, 600, 2000]);
+  assert.ok(densities[0] < densities[1] && densities[1] < densities[2]);
+  assert.ok(densities[0] > 0.4 && densities[0] < 1.0);
+  assert.ok(densities[2] > 10);
 });
