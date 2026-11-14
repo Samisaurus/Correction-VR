@@ -1,5 +1,5 @@
 /*
- * Variant R — CSV reading and column profiling.
+ * Ember to Ocean — CSV reading and column profiling.
  * No dependencies. Works with comma, semicolon, tab or pipe separated files.
  */
 (function () {
@@ -145,12 +145,20 @@
          || columns.find(c => c.type === "text")
          || null;
 
+    // Coordinates, if present, are used to place rows on the map.
+    const isNum = c => c.type === "number";
+    const lat = columns.find(c => isNum(c) && /^(lat|latitude|lat_?dd|y_?lat|decimal_?latitude|широта|纬度)$|latitude/i.test(c.name) && c.stats && c.stats.min >= -90 && c.stats.max <= 90);
+    const lon = columns.find(c => isNum(c) && /^(lon|lng|long|longitude|lon_?dd|x_?lon|decimal_?longitude|долгота|经度)$|longitude/i.test(c.name) && c.stats && c.stats.min >= -360 && c.stats.max <= 360);
+    const geo = lat && lon ? [lat.index, lon.index] : null;
+
     return {
       rowCount: rows.length,
       colCount: headers.length,
       columns,
       x: x ? x.index : -1,
-      numeric: columns.filter(c => c.type === "number" && (!x || c.index !== x.index)),
+      lat: geo ? geo[0] : -1,
+      lon: geo ? geo[1] : -1,
+      numeric: columns.filter(c => c.type === "number" && (!x || c.index !== x.index) && !(geo && geo.includes(c.index))),
       categorical: columns.filter(c => c.type === "text" && (!x || c.index !== x.index) && typeof c.unique === "number" && c.unique >= 2 && c.unique <= 200)
     };
   }

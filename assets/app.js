@@ -1,5 +1,5 @@
 /*
- * Variant R — application logic (routing, pages, data loading).
+ * Ember to Ocean — application logic (routing, pages, data loading).
  * Everything is generated from assets/config.js plus whatever CSV files exist.
  */
 (function () {
@@ -142,7 +142,7 @@
 
   /* ------------------------------------------------------- page scaffolding */
   function tabs(left, right) {
-    const t = (arr) => arr.map(x => `<a class="tab${x.on ? " selected" : ""}" href="${esc(x.href)}"${x.download ? ` download` : ""}>${esc(x.label)}</a>`).join("");
+    const t = (arr) => arr.map(x => `<a class="tab${x.on ? " selected" : ""}" href="${esc(x.href || "#")}"${x.download ? ` download` : ""}${x.scroll ? ` data-scroll="${esc(x.scroll)}"` : ""}>${esc(x.label)}</a>`).join("");
     return `<nav class="tabs" aria-label="Page tabs"><div class="tabs-left">${t(left)}</div><div class="tabs-right">${t(right || [])}</div></nav>`;
   }
   function heading(title, sub) {
@@ -294,9 +294,349 @@
     draw();
   }
 
+  /* ------------------------------------------------- headline measures */
+  /** Choose the measure that represents a topic in this file (config override → name patterns → row count → first number). */
+  function headline(ds, t, cid) {
+    const o = meta(cid, t.id), p = ds.profile;
+    const byName = n => p.columns.find(c => c.type === "number" && c.name.toLowerCase() === String(n).toLowerCase());
+    const grouped = isTime(xColumn(ds)) ? analyse(ds, { metric: "__count", agg: "sum", gran: "year", filterCol: "" }).grouped : false;
+    const make = col => col === "__count"
+      ? { metric: "__count", agg: "sum", label: "Number of records" }
+      : { metric: col.index, agg: o.combine || (SUMMABLE.test(col.name) ? "sum" : "mean"), label: col.name };
+    if (o.metric) { if (/^(count|__count|rows?)$/i.test(o.metric)) return make("__count"); const c = byName(o.metric); if (c) return make(c); }
+    const prefer = t.prefer || [];
+    for (let i = 0; i < prefer.length; i++) {
+      if (i === 1 && t.countFallback && grouped) return make("__count");
+      const c = p.numeric.find(col => prefer[i].test(col.name));
+      if (c) return make(c);
+    }
+    if (t.countFallback && grouped) return make("__count");
+    return p.numeric[0] ? make(p.numeric[0]) : make("__count");
+  }
+  /** Map(year → value) for the headline measure, or null if the file has no year/date column. */
+  function yearSeries(ds, h) {
+    if (!isTime(xColumn(ds))) return null;
+    const a = analyse(ds, { metric: h.metric, agg: h.agg, gran: "year", filterCol: "" });
+    const m = new Map();
+    for (const pt of a.points) if (pt.value != null && Number.isFinite(pt.value)) m.set(Math.round(pt.x), pt.value);
+    return m.size ? m : null;
+  }
+  /** Map(year → [{lat, lon, w|v}]) for files with coordinates. mode "points" keeps every row, "sites" averages per location. */
+  function geoByYear(ds, h, mode) {
+    const key = `${h.metric}|${mode}`;
+    ds._geo = ds._geo || {};
+    if (key in ds._geo) return ds._geo[key];
+    const p = ds.profile, xc = xColumn(ds);
+    if (p.lat < 0 || !isTime(xc)) return (ds._geo[key] = null);
+    const out = new Map(), sites = new Map();
+    for (const r of ds.table.rows) {
+      const y = xc.type === "year" ? CSV.toNumber(r[xc.index]) : (CSV.toDate(r[xc.index]) || {}).y;
+      const lat = CSV.toNumber(r[p.lat]), lon = CSV.toNumber(r[p.lon]);
+      if (y == null || lat == null || lon == null) continue;
+      const v = h.metric === "__count" ? 1 : CSV.toNumber(r[h.metric]);
+      if (v == null) continue;
+      if (mode === "points") { if (!out.has(y)) out.set(y, []); out.get(y).push({ lat, lon, w: v }); continue; }
+      const k = `${y}|${lat.toFixed(3)}|${lon.toFixed(3)}`;
+      const s = sites.get(k) || { y, lat, lon, sum: 0, n: 0 };
+      s.sum += v; s.n++; sites.set(k, s);
+    }
+    if (mode !== "points") for (const s of sites.values()) {
+      if (!out.has(s.y)) out.set(s.y, []);
+      out.get(s.y).push({ lat: s.lat, lon: s.lon, v: h.agg === "sum" ? s.sum : s.sum / s.n });
+    }
+    return (ds._geo[key] = out.size ? out : null);
+  }
+
+  /* ---------------------------------------------------------- geography */
+  let geoPromise = null;
+  const getGeo = () => geoPromise || (geoPromise = fetch("assets/geo/countries.json").then(r => r.json()).catch(() => ({})));
+
+  /* ---------------------------------------------------------- instrument */
+  const fmtP = p => p == null || Number.isNaN(p) ? "—" : p < 0.001 ? "< 0.001" : p.toFixed(3);
+  const sig = p => p != null && p < 0.05;
+  const inst = { cid: null, year: null, focus: null, data: null, map: null, timer: null };
+
+  function sparkline(series, years, year, color) {
+    if (!series || series.size < 2) return `<span class="muted small">—</span>`;
+    const xs = [...series.keys()].sort((a, b) => a - b), vs = xs.map(x => series.get(x));
+    const x0 = Math.min(years[0], xs[0]), x1 = Math.max(years[years.length - 1], xs[xs.length - 1]);
+    const v0 = Math.min(...vs), v1 = Math.max(...vs);
+    const W = 78, H = 24, X = x => 2 + (x - x0) / ((x1 - x0) || 1) * (W - 4), Y = v => H - 3 - (v - v0) / ((v1 - v0) || 1) * (H - 6);
+    const d = xs.map((x, i) => `${i ? "L" : "M"}${X(x).toFixed(1)},${Y(series.get(x)).toFixed(1)}`).join("");
+    const mark = series.has(year) ? `<circle cx="${X(year)}" cy="${Y(series.get(year))}" r="2.6" fill="${color}"/>` : "";
+    return `<svg class="spark" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" aria-hidden="true"><line x1="${X(year)}" x2="${X(year)}" y1="0" y2="${H}" class="spark-mark"/><path d="${d}" fill="none" stroke="${color}" stroke-width="1.4"/>${mark}</svg>`;
+  }
+
+  async function pageInstrument(cid, yr) {
+    const c = country(cid) || country(inst.cid) || C.countries[0];
+    stopPlay();
+    set(`${tabs([{ label: "Instrument", href: "#/", on: true }, { label: "Data archive", href: "#/archive" }], [{ label: "Methods", scroll: "methods" }, { label: "Data sources", scroll: "sources" }])}
+      <article class="article instrument">
+        <div class="e2o-head">
+          <div><h1 class="first-heading">${esc(C.siteName)}</h1>
+          <div class="site-sub">${esc(C.subtitle || C.tagline)}${C.event ? ` · <span class="mono">${esc(C.event)}</span>` : ""}</div></div>
+        </div>
+        <div class="country-tabs" role="tablist" aria-label="Country">${C.countries.map(x =>
+          `<a role="tab" href="#/at/${x.id}" class="${x === c ? "on" : ""}" aria-selected="${x === c}"><span class="swatch" style="background:${x.color}"></span>${esc(x.name)}</a>`).join("")}</div>
+        <div class="slider-card" id="slider"><span class="muted small">Loading ${esc(c.name)}…</span></div>
+        <div class="inst-grid">
+          <section class="map-card"><div class="card-h"><b>2.5D map</b> <span class="muted" id="map-title"></span></div>
+            <div id="map"></div><div class="map-legend" id="legend"></div><div class="small muted map-note" id="map-note"></div></section>
+          <aside id="info"></aside>
+        </div>
+        <div class="fig-grid">
+          <figure class="thumb fig" id="fig1"></figure>
+          <figure class="thumb fig" id="fig2"></figure>
+          <figure class="thumb fig" id="fig3"></figure>
+        </div>
+        <div class="inst-article" id="inst-article"></div>
+      </article>`, c.name === C.countries[0].name && !cid ? null : c.name);
+
+    const [geo, items] = await Promise.all([getGeo(), Promise.all(C.topics.map(t => getDataset(c.id, t.id).then(ds => ({ t, ds }))))]);
+    if (!document.getElementById("slider")) return; // navigated away
+    const data = items.map(({ t, ds }) => {
+      if (ds.status !== "ok") return { t, ds };
+      const h = headline(ds, t, c.id);
+      return { t, ds, h, series: yearSeries(ds, h) };
+    });
+    const years = [...new Set(data.flatMap(d => d.series ? [...d.series.keys()] : []))].sort((a, b) => a - b);
+    inst.cid = c.id; inst.data = data; inst.years = years; inst.country = c;
+    // Default year: the peak fire year (the most interesting "event"), otherwise the latest year.
+    const fireS = data.find(d => d.t.role === "fire" && d.series);
+    const peak = fireS ? [...fireS.series.entries()].reduce((b, e) => e[1] > b[1] ? e : b)[0] : null;
+    inst.year = yr && years.includes(+yr) ? +yr : peak != null && years.indexOf(peak) > 0 ? peak : years.length ? years[years.length - 1] : null;
+    if (!inst.focus || !data.find(d => d.t.id === inst.focus && d.series)) inst.focus = (data.find(d => d.series) || data[0]).t.id;
+
+    const colors = { fire: (C.topics.find(t => t.role === "fire") || {}).color || "#d55e00", air: (C.topics.find(t => t.role === "air") || {}).color || "#cc79a7",
+      water: (C.topics.find(t => t.role === "water") || {}).color || "#0072b2", near: (C.map && C.map.nearFireColor) || "#7b3fa0" };
+    inst.colors = colors;
+    inst.map = VR_MAP.create(document.getElementById("map"), { colors });
+    const shape = geo[String(c.iso)];
+    if (shape) inst.map.setCountry(shape.polygons, c.center || [0, 0]);
+    else document.getElementById("map-note").textContent = `No outline found for ISO code ${c.iso}; check “iso” in assets/config.js.`;
+
+    renderSlider(); renderArticle(); update();
+  }
+
+  function renderSlider() {
+    const host = document.getElementById("slider");
+    const ys = inst.years;
+    if (!ys.length) {
+      host.innerHTML = `<span class="small muted">No dated records for ${esc(inst.country.name)} yet. Add CSV files with a year or date column — see <a href="#/help">Adding data</a>.</span>`;
+      return;
+    }
+    const fire = inst.data.find(d => d.t.role === "fire" && d.series);
+    let marks = "";
+    if (fire) {
+      const vals = [...fire.series.values()].sort((a, b) => a - b);
+      const q3 = vals[Math.floor(vals.length * 0.75)];
+      marks = ys.filter(y => fire.series.has(y) && fire.series.get(y) >= q3 && vals.length >= 4)
+        .map(y => `<span class="tick-mark" style="left:${pos(y)}%" title="${y}: high ${esc(fire.t.short || fire.t.name)} year"></span>`).join("");
+    }
+    host.innerHTML = `<button type="button" class="play" aria-label="Play through the years" title="Play">▶</button>
+      <div class="slider-body">
+        <div class="slider-year" id="slider-year"></div>
+        <input type="range" id="year" min="0" max="${ys.length - 1}" step="1" value="${ys.indexOf(inst.year)}" aria-label="Year">
+        <div class="slider-marks">${marks}</div>
+        <div class="slider-ends small muted"><span>${ys[0]}</span>${fire ? `<span><span class="tri"></span> high ${esc((fire.t.short || fire.t.name).toLowerCase())} years</span>` : ""}<span>${ys[ys.length - 1]}</span></div>
+      </div>`;
+    const input = host.querySelector("#year");
+    input.addEventListener("input", () => { inst.year = ys[+input.value]; update(); });
+    host.querySelector(".play").addEventListener("click", () => inst.timer ? stopPlay() : startPlay());
+    function pos(y) { return ys.length > 1 ? (ys.indexOf(y) / (ys.length - 1)) * 100 : 50; }
+  }
+  function startPlay() {
+    const ys = inst.years; if (ys.length < 2) return;
+    if (inst.year === ys[ys.length - 1]) inst.year = ys[0];
+    const b = document.querySelector(".slider-card .play"); if (b) { b.textContent = "❚❚"; b.title = "Pause"; }
+    update();
+    inst.timer = setInterval(() => {
+      const i = ys.indexOf(inst.year);
+      if (i >= ys.length - 1 || !document.getElementById("year")) return stopPlay();
+      inst.year = ys[i + 1]; update();
+    }, 1100);
+  }
+  function stopPlay() {
+    if (inst.timer) clearInterval(inst.timer);
+    inst.timer = null;
+    const b = document.querySelector(".slider-card .play"); if (b) { b.textContent = "▶"; b.title = "Play"; }
+  }
+
+  function update() {
+    if (!inst.data || !document.getElementById("info")) return;
+    const ys = inst.years, y = inst.year, c = inst.country;
+    const input = document.getElementById("year");
+    if (input) {
+      input.value = ys.indexOf(y);
+      const lab = document.getElementById("slider-year");
+      lab.textContent = y; lab.style.left = `calc(${ys.length > 1 ? ys.indexOf(y) / (ys.length - 1) * 100 : 50}% + ${8 - (ys.length > 1 ? ys.indexOf(y) / (ys.length - 1) : .5) * 16}px)`;
+    }
+    if (y != null) history.replaceState(null, "", `#/at/${c.id}/${y}`);
+    document.getElementById("map-title").textContent = `${c.name}${y != null ? " · " + y : ""}`;
+    updateMap(); renderInfo(); renderFig1(); renderFig2(); renderFig3();
+  }
+
+  function updateMap() {
+    if (!inst.map) return;
+    const y = inst.year, layers = { nearKm: (C.map && C.map.nearFireKm) || 50, labels: {} };
+    const notes = [], legend = [];
+    for (const d of inst.data) {
+      const role = d.t.role; if (!role) continue;
+      if (d.ds.status !== "ok") { notes.push(`${d.t.name}: awaiting data.`); continue; }
+      layers.labels[role] = d.h.label;
+      const g = geoByYear(d.ds, d.h, role === "fire" ? "points" : "sites");
+      if (g) {
+        const pts = g.get(y) || [];
+        if (role === "fire") layers.fires = pts; else if (role === "air") layers.air = pts; else layers.water = pts;
+        if (!pts.length) notes.push(`${d.t.name}: no mapped records in ${y}.`);
+      } else if (role === "air" && d.series) {
+        const vs = [...d.series.values()], lo = Math.min(...vs), hi = Math.max(...vs);
+        layers.airLevel = d.series.has(y) ? (hi > lo ? (d.series.get(y) - lo) / (hi - lo) : 0.5) : null;
+        notes.push(`${d.t.name}: no coordinates in the file, so the haze shows the national level for each year.`);
+      } else notes.push(`${d.t.name}: add latitude and longitude columns to place records on the map.`);
+    }
+    inst.map.setLayers(layers);
+    const C2 = inst.colors;
+    if (layers.fires && layers.fires.length) legend.push(`<span><i class="lg-col" style="background:${C2.fire}"></i>${esc(layers.labels.fire)} (columns)</span>`, `<span><i class="lg-line" style="border-color:${C2.fire}"></i>fire density contours</span>`);
+    if ((layers.air && layers.air.length) || layers.airLevel != null) legend.push(`<span><i class="lg-haze" style="background:${C2.air}"></i>${esc(layers.labels.air)} (haze)</span>`);
+    if (layers.water && layers.water.length) legend.push(`<span><i class="lg-dot" style="background:${C2.water}"></i>${esc(layers.labels.water)} site</span>`, `<span><i class="lg-dot ring" style="background:${C2.near};color:${C2.near}"></i>within ${layers.nearKm} km of a fire</span>`);
+    document.getElementById("legend").innerHTML = legend.join("");
+    document.getElementById("map-note").innerHTML = notes.map(esc).join(" ");
+  }
+
+  function renderInfo() {
+    const c = inst.country, y = inst.year;
+    const rows = inst.data.map(d => {
+      const href = dsLink(c, d.t);
+      if (d.ds.status !== "ok") return `<tr class="info-row missing"><th scope="row"><span class="swatch" style="background:${d.t.color}"></span>${esc(d.t.name)}</th>
+        <td colspan="2"><a href="${href}" class="small">awaiting data →</a></td></tr>`;
+      const v = d.series && d.series.get(y), prev = d.series && d.series.get(y - 1);
+      const delta = v != null && prev != null ? pct(prev, v) : "";
+      return `<tr class="info-row${d.t.id === inst.focus ? " focus" : ""}" data-focus="${d.t.id}" tabindex="0" title="Show ${esc(d.t.name.toLowerCase())} in Fig. 1 and Fig. 2">
+        <th scope="row"><span class="swatch" style="background:${d.t.color}"></span>${esc(d.t.name)}<div class="small muted info-metric">${esc(d.h.label)}${d.h.metric !== "__count" && (d.h.agg === "sum") ? " · total" : d.h.metric !== "__count" ? " · average" : ""}</div></th>
+        <td class="num"><b>${v != null ? fmtNum(v) : "—"}</b>${delta && delta !== "—" ? `<div class="small muted">${delta} vs ${y - 1}</div>` : ""}</td>
+        <td>${sparkline(d.series, inst.years, y, d.t.color)}</td></tr>`;
+    }).join("");
+    const host = document.getElementById("info");
+    host.innerHTML = `<table class="infobox inst-info"><caption style="--accent:${c.color}">${esc(c.name)}</caption>
+      <tr><td colspan="3" class="infobox-sub">${y != null ? `Values for <b>${y}</b>` : "No dated values yet"}</td></tr>
+      <tr><th colspan="3" class="infobox-header">Headline measures</th></tr>${rows}
+      <tr><td colspan="3" class="small muted info-foot">Select a row to study it in Fig. 1 and Fig. 2. <a href="#/country/${c.id}">${esc(c.name)} in the archive →</a></td></tr></table>`;
+    host.querySelectorAll("[data-focus]").forEach(tr => {
+      const go = () => { inst.focus = tr.dataset.focus; renderInfo(); renderFig1(); renderFig2(); };
+      tr.addEventListener("click", go);
+      tr.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
+    });
+  }
+
+  const focusData = () => inst.data.find(d => d.t.id === inst.focus);
+
+  function renderFig1() {
+    const host = document.getElementById("fig1"), d = focusData();
+    const head = `<div class="fig-h"><b>Fig. 1</b> Trend</div><div class="fig-sub">Mann–Kendall test and Sen's slope</div>`;
+    if (!d || !d.series || d.series.size < 2) { host.innerHTML = head + `<div class="fig-empty">Needs a dated series for ${esc(d ? d.t.name.toLowerCase() : "this subject")}.</div>`; return; }
+    const xs = [...d.series.keys()].sort((a, b) => a - b), ys = xs.map(x => d.series.get(x));
+    const mk = VR_STATS.mannKendall(ys), sen = VR_STATS.senSlope(xs, ys);
+    host.innerHTML = head + `<div class="chart-host"></div><figcaption></figcaption>`;
+    const series = [{ name: d.h.label, color: d.t.color, points: xs.map((x, i) => ({ x, value: ys[i] })) }];
+    if (sen) series.push({ name: "Sen slope", color: "#767b80", dash: "5 4", width: 1.6, noDots: true, noHover: true,
+      points: [xs[0], xs[xs.length - 1]].map(x => ({ x, value: sen.intercept + sen.slope * x })) });
+    CH.render(host.querySelector(".chart-host"), { kind: "line", series, xFormat: v => String(v), markX: inst.year, noLegend: true, title: d.h.label });
+    host.querySelector("figcaption").innerHTML = `<b>${esc(d.t.name)}</b> — ${esc(d.h.label)} per year. ` + (mk
+      ? `Mann–Kendall τ = ${mk.tau.toFixed(2)}, p = ${fmtP(mk.p)} (n = ${mk.n}): <b>${sig(mk.p) ? (mk.tau > 0 ? "significant upward trend" : "significant downward trend") : "no significant trend"}</b>. `
+      : `At least 4 years are needed for the trend test. `) + (sen ? `Sen's slope ${sen.slope >= 0 ? "+" : ""}${fmtNum(sen.slope)} per year (dashed line).` : "");
+  }
+
+  function renderFig2() {
+    const host = document.getElementById("fig2"), d = focusData(), y = inst.year;
+    const head = `<div class="fig-h"><b>Fig. 2</b> Before / after ${y ?? ""}</div><div class="fig-sub">Welch t-test and Mann–Whitney U</div>`;
+    if (!d || !d.series) { host.innerHTML = head + `<div class="fig-empty">Needs a dated series.</div>`; return; }
+    const xs = [...d.series.keys()].sort((a, b) => a - b);
+    const before = xs.filter(x => x < y).map(x => d.series.get(x)), after = xs.filter(x => x >= y).map(x => d.series.get(x));
+    const w = VR_STATS.welch(before, after), mw = VR_STATS.mannWhitney(before, after);
+    const all = before.concat(after), lo = Math.min(0, ...all), hi = Math.max(...all) || 1;
+    const W = 320, H = 170, b = 22, top = 12, Y = v => H - b - (v - lo) / ((hi - lo) || 1) * (H - b - top);
+    const bar = (vals, cx, label, filled) => {
+      if (!vals.length) return `<text x="${cx}" y="${H - b - 6}" class="tick" text-anchor="middle">no years</text><text x="${cx}" y="${H - 6}" class="tick" text-anchor="middle">${label}</text>`;
+      const m = VR_STATS.mean(vals);
+      return `<rect x="${cx - 42}" y="${Y(m)}" width="84" height="${Math.max(1, Y(lo) - Y(m))}" class="${filled ? "bar-after" : "bar-before"}" style="--c:${d.t.color}"/>` +
+        vals.map((v, i) => `<circle cx="${cx - 30 + (vals.length > 1 ? i / (vals.length - 1) * 60 : 30)}" cy="${Y(v)}" r="2.6" fill="${d.t.color}" opacity=".85"/>`).join("") +
+        `<text x="${cx}" y="${Y(m) - 5}" class="tick" text-anchor="middle">${esc(fmtNum(m))}</text><text x="${cx}" y="${H - 6}" class="tick" text-anchor="middle">${label}</text>`;
+    };
+    host.innerHTML = head + `<svg class="fig-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Before and after comparison">
+      <line x1="10" x2="${W - 10}" y1="${Y(lo)}" y2="${Y(lo)}" class="axis"/>
+      ${bar(before, W * 0.3, `before ${y} (${before.length} y)`, false)}${bar(after, W * 0.7, `${y} onward (${after.length} y)`, true)}</svg>
+      <figcaption><b>${esc(d.t.name)}</b> — mean ${esc(d.h.label)} per year; dots are single years. ` + (w
+        ? `Welch t = ${w.t.toFixed(2)}, p = ${fmtP(w.p)}; Mann–Whitney U = ${fmtNum(mw.U)}, p = ${fmtP(mw.p)}: <b>${sig(w.p) || sig(mw.p) ? "the difference is significant" : "no significant difference"}</b>. Move the slider to change the split.`
+        : `Move the slider so that each side has at least 2 years.`) + `</figcaption>`;
+  }
+
+  function renderFig3() {
+    const host = document.getElementById("fig3");
+    const chain = inst.data.filter(d => d.t.role || d.series);
+    const n = chain.length, W = 320, H = 150, cy = 62, R = 21;
+    const xAt = i => n > 1 ? 34 + i * (W - 68) / (n - 1) : W / 2;
+    const links = [];
+    for (let i = 0; i < n - 1; i++) {
+      const a = chain[i], b = chain[i + 1];
+      links.push(a.series && b.series ? VR_STATS.lagCorrelation(a.series, b.series, 3) : null);
+    }
+    const svg = `<svg class="fig-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Chain of lagged correlations">
+      <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" class="arrow-head"/></marker></defs>
+      ${links.map((l, i) => {
+        const x1 = xAt(i) + R + 3, x2 = xAt(i + 1) - R - 4, mid = (x1 + x2) / 2, ok = l && sig(l.p);
+        return `<line x1="${x1}" y1="${cy}" x2="${x2}" y2="${cy}" class="chain-link${ok ? "" : " weak"}" marker-end="url(#arr)"/>
+          <text x="${mid}" y="${cy - 10}" class="tick" text-anchor="middle">${l ? `ρ ${l.r >= 0 ? "+" : ""}${l.r.toFixed(2)}` : "n/a"}</text>
+          ${l ? `<text x="${mid}" y="${cy + 18}" class="tick" text-anchor="middle">lag ${l.lag} y</text><text x="${mid}" y="${cy + 31}" class="tick muted-t" text-anchor="middle">p ${fmtP(l.p)}</text>` : ""}`;
+      }).join("")}
+      ${chain.map((d, i) => `<circle cx="${xAt(i)}" cy="${cy}" r="${R}" class="chain-node" style="stroke:${d.series ? d.t.color : "var(--rule)"}"/>
+        <text x="${xAt(i)}" y="${cy + 4}" text-anchor="middle" class="chain-label">${esc(d.t.short || d.t.name)}</text>`).join("")}
+    </svg>`;
+    const strong = links.filter(l => l && sig(l.p)).length;
+    host.innerHTML = `<div class="fig-h"><b>Fig. ${3}</b> The chain</div><div class="fig-sub">Spearman correlation, lag 0–3 years</div>${svg}
+      <figcaption>Each arrow links one year's ${esc(chain[0] ? (chain[0].t.short || chain[0].t.name).toLowerCase() : "")} value with the next subject up to three years later; the lag with the strongest correlation is shown. Solid = significant at p &lt; 0.05, dashed = not significant. ${links.some(l => l) ? `${strong} of ${links.length} links significant for ${esc(inst.country.name)}.` : "Needs dated series for neighbouring subjects."}</figcaption>`;
+  }
+
+  function renderArticle() {
+    const c = inst.country;
+    const srcs = inst.data.map(d => {
+      const m = meta(c.id, d.t.id);
+      return `<li><a href="${dsLink(c, d.t)}">${esc(dsTitle(c, d.t))}</a> — ${m.source ? (m.sourceUrl ? `<a href="${esc(m.sourceUrl)}" rel="noopener">${esc(m.source)}</a>, ` : esc(m.source) + ", ") : ""}<code>${esc(d.ds.path)}</code> ${statusPill(d.ds)}${d.h ? ` <span class="small muted">headline measure: ${esc(d.h.label)}</span>` : ""}</li>`;
+    }).join("");
+    const chainNames = inst.data.map(d => d.t.short || d.t.name).join(" → ");
+    const team = (C.team || []).length ? `<ul>${C.team.map(m => `<li><b>${esc(m.name)}</b>${m.role ? ` — ${esc(m.role)}` : ""}</li>`).join("")}</ul>` : `<p class="muted">Team members are listed in <code>assets/config.js</code>.</p>`;
+    document.getElementById("inst-article").innerHTML = `
+      <h2 id="overview">Overview</h2>
+      <p class="lead"><b>${esc(C.siteName)}</b> follows the trail of a wildfire from the forest to the water: does a bad fire year leave a mark on the air, and later on rivers and lakes? It compares ${C.countries.map(x => esc(x.name)).join(", ").replace(/, ([^,]*)$/, " and $1")} using the data files in the archive. Choose a country, move the slider through the years, and select a measure in the infobox to test it.</p>
+      <h2 id="methods">Methods</h2>
+      <h3>Data handling</h3>
+      <p>Each subject and country is one CSV file. When a file loads, every column is classified as a year, date, number or text. The column called <i>year</i> or <i>date</i> (or the first such column) becomes the time axis. A <i>headline measure</i> is then chosen for each file: the column named in the configuration, otherwise the first column whose name matches the subject (for example PM2.5 or AOD for air), otherwise — for files with one row per event, such as satellite fire detections — the number of records per year. Rows that share a year are combined: totals for counts and areas, averages for concentrations.</p>
+      <h3>Map</h3>
+      <p>The outline is drawn with a Lambert azimuthal equal-area projection centred on the country, so areas are comparable, then tilted into a 2.5D view. Rows with latitude and longitude are placed on the map for the selected year: fires are summed into grid cells shown as columns (taller = more), with contour lines of smoothed fire density; air measurements become a haze whose strength follows the value; water sites turn purple when a fire was recorded within ${esc(String((C.map && C.map.nearFireKm) || 50))} km in the same year. Files without coordinates still feed every chart.</p>
+      <h3>Statistics</h3>
+      <ul>
+        <li><b>Fig. 1 — Trend.</b> The Mann–Kendall test asks whether the yearly series tends to rise or fall, without assuming a straight line or normal data (variance corrected for ties). Sen's slope is the median of the slopes between all pairs of years.</li>
+        <li><b>Fig. 2 — Before / after.</b> Years before the selected year are compared with the selected year and after, using Welch's t-test (means, unequal variances) and the Mann–Whitney U test (ranks, normal approximation).</li>
+        <li><b>Fig. 3 — The chain.</b> For each neighbouring pair (${esc(chainNames)}), the Spearman rank correlation is computed between the first subject in one year and the second subject 0, 1, 2 or 3 years later; the strongest lag is reported. All tests are two-sided at α = 0.05.</li>
+      </ul>
+      <h2 id="sources">Data sources</h2>
+      <ol class="references">${srcs}</ol>
+      <h2 id="caveats">Caveats</h2>
+      <ul>
+        <li>Correlation is not causation. Fig. 3 shows whether changes line up in time, not that one causes the other.</li>
+        <li>Yearly series are short, so tests have little power. Choosing the best of four lags also makes a chance result more likely.</li>
+        <li>Countries measure pollution differently; compare trends within a country more readily than levels between countries.</li>
+        <li>Satellite water products describe water <i>condition</i> (for example turbidity or chlorophyll), not chemical pollution directly.</li>
+        <li>Everything shown is computed from the files listed above, exactly as supplied.</li>
+      </ul>
+      <h2 id="team">Team and AI use</h2>
+      ${team}
+      <p>${esc(C.aiUse || "")}</p>`;
+  }
+
   /* ---------------------------------------------------------------- pages */
-  async function pageHome() {
-    loading("Main Page");
+  async function pageArchive() {
+    loading("Data archive");
     const all = await getAll();
     const ok = all.filter(x => x.ds.status === "ok");
     const records = ok.reduce((a, x) => a + x.ds.profile.rowCount, 0);
@@ -308,10 +648,10 @@
           <span class="small muted">${ds.status === "ok" ? `${ds.profile.rowCount.toLocaleString()} records${coverage(ds) ? " · " + esc(coverage(ds)) : ""}` : esc(ds.path)}</span></a></td>`;
       }).join("")}</tr>`).join("")}</tbody></table>`;
 
-    set(`${tabs([{ label: "Main Page", href: "#/", on: true }, { label: "Discussion", href: "#/about" }])}
+    set(`${tabs([{ label: "Instrument", href: "#/" }, { label: "Data archive", href: "#/archive", on: true }], [{ label: "Adding data", href: "#/help" }])}
       <article class="article main-page">
         <div class="mp-welcome">
-          <h1>Welcome to <span class="brand-word">${esc(C.siteName)}</span>,</h1>
+          <h1>The <span class="brand-word">${esc(C.siteName)}</span> data archive</h1>
           <p>${esc(C.tagline.toLowerCase())} — an open notebook comparing <b>${C.topics.map(t => esc(t.name.toLowerCase())).join("</b>, <b>").replace(/, <b>([^<]*)<\/b>$/, " and <b>$1</b>")}</b>
           across ${C.countries.map(c => `<a href="#/country/${c.id}">${esc(c.name)}</a>`).join(", ").replace(/, ([^,]*)$/, " and $1")}.</p>
           <p class="mp-count">${ok.length} of ${all.length} datasets catalogued · ${records.toLocaleString()} records</p>
@@ -329,7 +669,7 @@
             <p>${esc(C.siteName)} does not come with data built in. It reads whatever CSV files are placed in the <code>${esc(C.dataRoot)}/</code> folder and works out for itself which columns are years, dates, measurements or categories.
             Replace or extend a file and every page updates on the next visit. See <a href="#/help">Adding data</a> for the conventions, or <a href="#/preview">preview a file</a> straight from your computer.</p></section>
         </div>
-      </article>`);
+      </article>`, "Data archive");
   }
 
   async function pageCountry(cid) {
@@ -348,6 +688,7 @@
           ...C.topics.map(t => { const ds = items.find(x => x.t === t).ds; return [t.name, `<a href="${dsLink(c, t)}">${ds.status === "ok" ? ds.profile.rowCount.toLocaleString() + " rows" : "awaiting data"}</a>`]; })
         ], c.color)}
         <p class="lead"><b>${esc(c.name)}</b> (officially the ${esc(c.officialName)}) is one of the countries studied in the ${esc(C.siteName)} archive. ${esc(c.summary)}</p>
+        <div class="hatnote">For the interactive map and statistics, see <a href="#/at/${c.id}">${esc(C.siteName)} — ${esc(c.name)}</a>.</div>
         <p>This article brings together the ${C.topics.length} environmental datasets held for ${esc(c.name)}. ${ok.length ? `${ok.length} ${ok.length === 1 ? "is" : "are"} currently catalogued.` : "None have been catalogued yet."}</p>
         ${toc(C.topics.map(t => ({ id: t.id, label: t.name })).concat([{ id: "see-also", label: "See also" }]))}
         ${items.map(({ t, ds }) => `<h2 id="${t.id}">${esc(t.name)}</h2>
@@ -357,7 +698,7 @@
         <ul>${C.countries.filter(x => x !== c).map(x => `<li><a href="#/country/${x.id}">${esc(x.name)}</a></li>`).join("")}
             ${C.topics.map(t => `<li><a href="#/topic/${t.id}">${esc(t.name)}</a> — comparison between countries</li>`).join("")}</ul>
       </article>`, c.name);
-    for (const { t, ds } of ok) explorer(content.querySelector(`.explore[data-t="${t.id}"]`), ds, { color: c.color, compact: true });
+    for (const { t, ds } of ok) { const hl = headline(ds, t, c.id); explorer(content.querySelector(`.explore[data-t="${t.id}"]`), ds, { color: t.color || c.color, compact: true, initial: { metric: hl.metric, agg: hl.agg } }); }
   }
 
   async function pageTopic(tid) {
@@ -541,7 +882,8 @@
       <h2 id="references">References</h2>
       <ol class="references"><li>${m.source ? (m.sourceUrl ? `<a href="${esc(m.sourceUrl)}" rel="noopener">${esc(m.source)}</a>. ` : esc(m.source) + ". ") : ""}Data file <code>${esc(ds.path)}</code>${ds.preview ? " (local preview)" : `, retrieved ${new Date().toISOString().slice(0, 10)}`}.</li></ol>
     </article>`, title);
-    explorer(document.getElementById("ex"), ds, { color: c.color });
+    const hl = headline(ds, t, c.id);
+    explorer(document.getElementById("ex"), ds, { color: c.color, initial: { metric: hl.metric, agg: hl.agg } });
     function cov(d) { return coverage(d); }
   }
 
@@ -668,7 +1010,7 @@
     const sb = document.getElementById("sidebar");
     sb.innerHTML = `
       <div class="portal"><div class="portal-h">Navigation</div><ul>
-        <li><a href="#/">Main page</a></li><li><a href="#/random" id="random">Random dataset</a></li><li><a href="#/preview">Preview a local file</a></li></ul></div>
+        <li><a href="#/">Instrument</a></li><li><a href="#/archive">Data archive</a></li><li><a href="#/random" id="random">Random dataset</a></li><li><a href="#/preview">Preview a local file</a></li></ul></div>
       <div class="portal"><div class="portal-h">Countries</div><ul>${C.countries.map(c => `<li><a href="#/country/${c.id}">${esc(c.name)}</a></li>`).join("")}</ul></div>
       <div class="portal"><div class="portal-h">Subjects</div><ul>${C.topics.map(t => `<li><a href="#/topic/${t.id}">${esc(t.name)}</a></li>`).join("")}</ul></div>
       <div class="portal"><div class="portal-h">Laboratory</div><ul><li><a href="#/about">About ${esc(C.siteName)}</a></li><li><a href="#/help">Adding data</a></li></ul></div>`;
@@ -678,7 +1020,8 @@
   }
 
   function markNav() {
-    const h = location.hash || "#/";
+    let h = location.hash || "#/";
+    if (h.startsWith("#/at/")) h = "#/";
     document.querySelectorAll("#sidebar a").forEach(a => a.classList.toggle("active", a.getAttribute("href") === h || (h.startsWith(a.getAttribute("href") + "/") && a.getAttribute("href") !== "#/")));
   }
 
@@ -687,7 +1030,9 @@
     const h = decodeURI(location.hash.replace(/^#/, "")) || "/";
     let m;
     document.body.classList.remove("nav-open");
-    if (h === "/" || h === "") pageHome();
+    if (h === "/" || h === "") pageInstrument();
+    else if ((m = h.match(/^\/at\/([\w-]+)(?:\/(\d{4}))?$/))) pageInstrument(m[1], m[2]);
+    else if (h === "/archive") pageArchive();
     else if ((m = h.match(/^\/country\/([\w-]+)$/))) pageCountry(m[1]);
     else if ((m = h.match(/^\/topic\/([\w-]+)$/))) pageTopic(m[1]);
     else if ((m = h.match(/^\/data\/([\w-]+)\/([\w-]+)(?:\/(table|source))?$/))) pageDataset(m[1], m[2], m[3]);

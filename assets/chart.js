@@ -1,5 +1,5 @@
 /*
- * Variant R — tiny SVG chart renderer (line and bar). No dependencies.
+ * Ember to Ocean — tiny SVG chart renderer (line and bar). No dependencies.
  *
  * VR_CHART.render(element, {
  *   kind: "line" | "bar",
@@ -64,7 +64,7 @@
     const kind = opts.kind || "line";
     const xFormat = opts.xFormat || (v => String(v));
 
-    const allVals = series.flatMap(s => s.points.map(p => p.value)).filter(v => v != null);
+    const allVals = series.flatMap(s => s.points.map(p => p.value)).filter(v => v != null && Number.isFinite(v));
     let yMin = Math.min(...allVals), yMax = Math.max(...allVals);
     if (kind === "bar" || yMin > 0 && yMin / (yMax || 1) < 0.35) yMin = Math.min(0, yMin);
     const yt = ticks(yMin, yMax, H < 260 ? 4 : 5);
@@ -110,12 +110,17 @@
       for (const s of series) {
         const pts = s.points.filter(p => p.value != null).sort((a, b) => a.x - b.x);
         const d = pts.map((p, i) => `${i ? "L" : "M"}${sx(p.x).toFixed(1)},${sy(p.value).toFixed(1)}`).join("");
-        el("path", { d, fill: "none", stroke: s.color, "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }, g);
-        if (pts.length <= 60) pts.forEach(p => el("circle", { cx: sx(p.x), cy: sy(p.value), r: 3, fill: s.color, class: "dot" }, g));
+        const attrs = { d, fill: "none", stroke: s.color, "stroke-width": s.width || 2, "stroke-linejoin": "round", "stroke-linecap": "round" };
+        if (s.dash) attrs["stroke-dasharray"] = s.dash;
+        el("path", attrs, g);
+        if (!s.noDots && pts.length <= 60) pts.forEach(p => el("circle", { cx: sx(p.x), cy: sy(p.value), r: 3, fill: s.color, class: "dot" }, g));
+      }
+      if (opts.markX != null && opts.markX >= xMin && opts.markX <= xMax) {
+        el("line", { x1: sx(opts.markX), x2: sx(opts.markX), y1: m.t, y2: m.t + ih, class: "mark" }, g);
       }
       hoverXs = xs.map(v => ({
         px: sx(v), label: xFormat(v),
-        rows: series.map(s => { const p = s.points.find(q => q.x === v); return { name: s.name, color: s.color, value: p ? p.value : null }; })
+        rows: series.filter(s => !s.noHover).map(s => { const p = s.points.find(q => q.x === v); return { name: s.name, color: s.color, value: p ? p.value : null }; })
       }));
     } else {
       const cats = [...new Set(series.flatMap(s => s.points.map(p => p.label)))];
@@ -157,7 +162,7 @@
       for (const h of hoverXs) { const dd = Math.abs(h.px - px); if (dd < bd) { bd = dd; best = h; } }
       guide.setAttribute("x1", best.px); guide.setAttribute("x2", best.px); guide.setAttribute("visibility", "visible");
       tip.innerHTML = `<div class="tip-x">${esc(best.label)}</div>` + best.rows.map(r =>
-        `<div class="tip-row"><span class="sw" style="background:${r.color}"></span>${series.length > 1 ? esc(r.name) + ": " : ""}<b>${r.value == null ? "—" : esc(fmtFull(r.value))}</b></div>`).join("");
+        `<div class="tip-row"><span class="sw" style="background:${r.color}"></span>${best.rows.length > 1 ? esc(r.name) + ": " : ""}<b>${r.value == null ? "—" : esc(fmtFull(r.value))}</b></div>`).join("");
       tip.hidden = false;
       const left = best.px * (rect.width / W);
       tip.style.left = Math.min(rect.width - tip.offsetWidth - 4, Math.max(4, left + 12)) + "px";
@@ -169,7 +174,7 @@
 
     host.appendChild(svg);
     host.appendChild(tip);
-    if (series.length > 1) {
+    if (series.length > 1 && !opts.noLegend) {
       const lg = document.createElement("div");
       lg.className = "chart-legend";
       lg.innerHTML = series.map(s => `<span><span class="sw" style="background:${s.color}"></span>${esc(s.name)}</span>`).join("");
