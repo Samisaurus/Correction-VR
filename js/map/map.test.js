@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { prepareRivers, scoreRiversForYear } from './river-pollution.js';
-import { enrichAndSortFires } from './fire-density.js';
+import { prepareRivers, scoreRiversForYear } from './water.js';
+import { enrichAndSortFires } from './fires.js';
 import { annualSeries, annualValue, annualMedian, monthlySeries } from '../data.js';
 
 test('scoreRiversForYear keeps low-exposure rivers blue (0) and high-exposure rivers purple (near 1)', () => {
@@ -28,7 +28,6 @@ test('scoreRiversForYear keeps low-exposure rivers blue (0) and high-exposure ri
   };
 
   const preparedRivers = prepareRivers(rivers);
-
   const fires = {
     type: 'FeatureCollection',
     features: [
@@ -36,7 +35,6 @@ test('scoreRiversForYear keeps low-exposure rivers blue (0) and high-exposure ri
       { type: 'Feature', geometry: { type: 'Point', coordinates: [-124.5, 52.0] }, properties: { count: 4800, frp_sum: 85000 } },
     ],
   };
-
   const air = {
     type: 'FeatureCollection',
     features: [
@@ -70,27 +68,22 @@ test('real dataset separation: Canada 2023 megafire year has substantially highe
   const scores23 = s23.features.map((f) => f.properties.pollution);
   const avg12 = scores12.reduce((a, b) => a + b, 0) / scores12.length;
   const avg23 = scores23.reduce((a, b) => a + b, 0) / scores23.length;
-  const min23 = Math.min(...scores23);
-  const max23 = Math.max(...scores23);
-
   assert.ok(avg23 > avg12, `expected 2023 avg (${avg23}) > 2012 avg (${avg12})`);
-  assert.ok(min23 < 0.4, `expected low-exposure rivers in 2023 to stay blue/low (<0.4), got min=${min23}`);
-  assert.ok(max23 > 0.65, `expected high-exposure rivers in 2023 to reach purple (>0.65), got max=${max23}`);
+  assert.ok(Math.min(...scores23) < 0.4);
+  assert.ok(Math.max(...scores23) > 0.65);
 });
 
 test('accurate 50m country borders GeoJSON has all 3 countries and zero antimeridian jumps', () => {
   const fc = JSON.parse(fs.readFileSync('public/country-borders.geojson', 'utf8'));
   assert.equal(fc.type, 'FeatureCollection');
-  const ids = fc.features.map((f) => f.properties.id).sort();
-  assert.deepEqual(ids, ['canada', 'russia', 'usa']);
+  assert.deepEqual(fc.features.map((f) => f.properties.id).sort(), ['canada', 'russia', 'usa']);
 
   for (const f of fc.features) {
     const polys = f.geometry.type === 'MultiPolygon' ? f.geometry.coordinates : [f.geometry.coordinates];
     for (const poly of polys) {
       for (const ring of poly) {
         for (let i = 1; i < ring.length; i += 1) {
-          const jump = Math.abs(ring[i][0] - ring[i - 1][0]);
-          assert.ok(jump < 10, `${f.properties.id} has unexpected lon jump ${jump}`);
+          assert.ok(Math.abs(ring[i][0] - ring[i - 1][0]) < 10);
         }
       }
     }
@@ -114,7 +107,7 @@ test('indexed series helpers return accurate O(1) values and median', () => {
   assert.equal(monthlySeries(series, 'fire_frp').length, 2);
 });
 
-test('enrichAndSortFires computes detections per 10 sq km and sorts ascending by density', () => {
+test('enrichAndSortFires computes detections per 5 sq km and sorts ascending by density', () => {
   const fc = {
     type: 'FeatureCollection',
     features: [
@@ -125,9 +118,9 @@ test('enrichAndSortFires computes detections per 10 sq km and sorts ascending by
   };
   const sorted = enrichAndSortFires(fc, { isBasin: false });
   const counts = sorted.features.map((f) => f.properties.count);
-  const densities = sorted.features.map((f) => f.properties.density_10km2);
+  const densities = sorted.features.map((f) => f.properties.density_5km2);
   assert.deepEqual(counts, [100, 600, 2000]);
   assert.ok(densities[0] < densities[1] && densities[1] < densities[2]);
-  assert.ok(densities[0] > 0.4 && densities[0] < 1.0);
-  assert.ok(densities[2] > 10);
+  assert.ok(densities[0] > 0.2 && densities[0] < 0.5, `expected ~0.28 per 5 km^2, got ${densities[0]}`);
+  assert.ok(densities[2] > 5.0, `expected >5 per 5 km^2, got ${densities[2]}`);
 });

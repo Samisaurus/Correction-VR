@@ -20,7 +20,6 @@ const STYLE = `
 .leg-box.is-collapsed .leg-title { border-bottom: 0; }
 .leg-row { display: flex; align-items: center; gap: 7px; margin: 2.5px 0; }
 .leg-row svg { flex: 0 0 auto; display: block; overflow: visible; }
-.leg-fire { fill: var(--c-fire); fill-opacity: 0.75; }
 .leg-water { fill: var(--c-water); fill-opacity: 0.4; stroke: var(--c-water); stroke-width: 1; }
 .leg-contour { stroke: var(--c-contour); stroke-width: 1.1; fill: none; }
 .leg-basin { stroke: var(--c-basin); stroke-width: 1.5; stroke-dasharray: 3 2; fill: var(--c-basin); fill-opacity: 0.12; }
@@ -96,8 +95,8 @@ export async function mount(el, ctx) {
     const k = basin ? 0.75 : 0.4;
     const r = (n) => (1 + k * Math.sqrt(n)).toFixed(1);
     body.appendChild(row(
-      svg(64, 26, `<circle cx="8" cy="13" r="${r(10)}" fill="#FACC15" fill-opacity="0.82"/><circle cx="26" cy="13" r="${r(100)}" fill="#EA580C" fill-opacity="0.88"/><circle cx="52" cy="13" r="${r(1000)}" fill="#991B1B" fill-opacity="0.94"/>`),
-      `<strong>Fire density:</strong> yellow → red / 10 km²<br><span class="leg-muted">${basin ? '0.1°' : '0.5°'} grid, size = detections</span>`,
+      svg(64, 26, `<circle cx="8" cy="13" r="${r(10)}" fill="#FACC15" fill-opacity="0.55"/><circle cx="26" cy="13" r="${r(100)}" fill="#EA580C" fill-opacity="0.68"/><circle cx="52" cy="13" r="${r(1000)}" fill="#991B1B" fill-opacity="0.78"/>`),
+      `<strong>Fire density:</strong> yellow → red / 5 km²<br><span class="leg-muted">${basin ? '0.1°' : '0.5°'} grid, size = detections</span>`,
     ));
     body.appendChild(row(
       svg(46, 12,

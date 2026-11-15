@@ -2,15 +2,14 @@
 // Purpose: optimized MapLibre map (#map) with accurate 1:50m country/basin borders,
 //          distinct colors for Canada/USA/Russia, topographic contours, terrain, and coalesced updates.
 
+import { addLayer as addAirLayer } from './air.js';
+import { addLayer as addFiresLayer } from './fires.js';
+import { addLayer as addWaterLayer } from './water.js';
+
 const STYLE_URL = 'https://tiles.openfreemap.org/styles/positron';
 const DEM_URL = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
 const EMPTY = { type: 'FeatureCollection', features: [] };
 const FONT = ['Noto Sans Regular'];
-const LAYER_LOADERS = {
-  './air.js': () => import('./air.js'),
-  './water.js': () => import('./water.js'),
-  './fires.js': () => import('./fires.js'),
-};
 const CSS = `
 .map-canvas { position: absolute; inset: 0; }
 .map-back {
@@ -244,13 +243,12 @@ export async function mount(el, ctx) {
   let refreshing = false;
   let queued = null;
 
-  async function loadLayer(path) {
+  function registerLayer(addFn) {
     try {
-      const mod = await LAYER_LOADERS[path]();
-      const api = mod.addLayer(map, ctx);
+      const api = addFn(map, ctx);
       if (api && typeof api.update === 'function') layers.push(api);
     } catch (err) {
-      console.info(`map: ${path} not ready (${err && err.message ? err.message : err})`);
+      console.info(`map: layer failed (${err && err.message ? err.message : err})`);
     }
   }
 
@@ -395,9 +393,9 @@ export async function mount(el, ctx) {
 
     addTerrain(map, COLORS);
     addCountryLayers(map);
-    await loadLayer('./air.js');
-    await loadLayer('./fires.js');
-    await loadLayer('./water.js');
+    registerLayer(addAirLayer);
+    registerLayer(addFiresLayer);
+    registerLayer(addWaterLayer);
     addBasinOutlines(map, COLORS);
     addLabels(map, COLORS);
 

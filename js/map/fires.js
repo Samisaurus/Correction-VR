@@ -1,22 +1,68 @@
 // js/map/fires.js
-// Purpose: fire cells sorted ascending by detection density per 10 km^2, preserving dotted style
-//          while shading from yellow (low density) -> orange -> deep red (high density).
-
-import { enrichAndSortFires } from './fire-density.js';
+// Purpose: wildfire dots sorted ascending by detection density per 5 km^2 with translucent
+//          yellow-to-red layering and subtle GPU-interpolated ember breathing animation.
 
 const EMPTY = { type: 'FeatureCollection', features: [] };
+const KM_PER_DEG_LAT = 110.574;
+const KM_PER_DEG_LON = 111.32;
+const enrichedCache = new WeakMap();
+
+export function cellAreaKm2(lat, deg = 0.5) {
+  const cosLat = Math.max(0.15, Math.cos((Number(lat) || 0) * (Math.PI / 180)));
+  return (deg * KM_PER_DEG_LAT) * (deg * KM_PER_DEG_LON * cosLat);
+}
+
+/**
+ * Compute detections per 5 km^2 for every fire cell and sort ascending by density
+ * so higher-density red hotspots render cleanly on top of lower-density yellow dots.
+ */
+export function enrichAndSortFires(fires, { isBasin = false, gridDeg = null } = {}) {
+  if (!fires || !Array.isArray(fires.features) || fires.features.length === 0) {
+    return EMPTY;
+  }
+  const deg = gridDeg || (isBasin ? 0.1 : 0.5);
+  let perDeg = enrichedCache.get(fires);
+  if (!perDeg) {
+    perDeg = new Map();
+    enrichedCache.set(fires, perDeg);
+  }
+  if (perDeg.has(deg)) return perDeg.get(deg);
+
+  const features = new Array(fires.features.length);
+  for (let i = 0; i < fires.features.length; i += 1) {
+    const f = fires.features[i];
+    const coords = f && f.geometry && f.geometry.coordinates;
+    const lat = Array.isArray(coords) ? Number(coords[1]) : 0;
+    const props = f.properties || {};
+    const count = Math.max(0, Number(props.count) || 0);
+    const area = cellAreaKm2(lat, deg);
+    const density = area > 0 ? Number((count / (area / 5)).toFixed(2)) : 0;
+    features[i] = {
+      type: 'Feature',
+      geometry: f.geometry,
+      properties: {
+        ...props,
+        density_5km2: density,
+      },
+    };
+  }
+
+  features.sort((a, b) => a.properties.density_5km2 - b.properties.density_5km2);
+  const out = { type: 'FeatureCollection', features };
+  perDeg.set(deg, out);
+  return out;
+}
 
 const DENSITY_COLOR = [
-  'interpolate', ['linear'], ['coalesce', ['get', 'density_10km2'], 0],
-  0.5, '#FACC15',
-  1.8, '#F59E0B',
-  4.0, '#EA580C',
-  8.5, '#DC2626',
-  16.0, '#991B1B',
+  'interpolate', ['linear'], ['coalesce', ['get', 'density_5km2'], 0],
+  0.25, '#FACC15',
+  0.90, '#F59E0B',
+  2.00, '#EA580C',
+  4.25, '#DC2626',
+  8.00, '#991B1B',
 ];
 
 function radius(k) {
-  // sqrt(count) scaled by zoom so 0.5° country cells and 0.1° basin cells both read cleanly
   const s = ['sqrt', ['max', 1, ['get', 'count']]];
   const at = (f) => ['+', 1, ['*', f * k, s]];
   return ['interpolate', ['linear'], ['zoom'], 1, at(0.22), 3, at(0.4), 6, at(0.75), 9, at(1.3)];
@@ -25,44 +71,68 @@ function radius(k) {
 export function addLayer(map, ctx) {
   const { fmt } = ctx.theme;
   map.addSource('fires-src', { type: 'geojson', data: EMPTY, attribution: 'Fires: NASA FIRMS VIIRS' });
+
   map.addLayer({
     id: 'fires-glow',
     type: 'circle',
     source: 'fires-src',
     layout: {
-      'circle-sort-key': ['coalesce', ['get', 'density_10km2'], 0],
+      'circle-sort-key': ['coalesce', ['get', 'density_5km2'], 0],
     },
     paint: {
       'circle-color': DENSITY_COLOR,
-      'circle-blur': 1,
-      'circle-opacity': ['interpolate', ['linear'], ['coalesce', ['get', 'density_10km2'], 0], 0.4, 0.14, 10, 0.28],
-      'circle-radius': radius(2.2),
+      'circle-blur': 1.15,
+      'circle-opacity': ['interpolate', ['linear'], ['coalesce', ['get', 'density_5km2'], 0], 0.2, 0.08, 5.0, 0.17],
+      'circle-radius': radius(2.1),
+      'circle-opacity-transition': { duration: 1050, delay: 0 },
+      'circle-radius-transition': { duration: 1050, delay: 0 },
     },
   });
+
   map.addLayer({
     id: 'fires-dot',
     type: 'circle',
     source: 'fires-src',
     layout: {
-      'circle-sort-key': ['coalesce', ['get', 'density_10km2'], 0],
+      'circle-sort-key': ['coalesce', ['get', 'density_5km2'], 0],
     },
     paint: {
       'circle-color': DENSITY_COLOR,
-      'circle-radius': radius(1),
-      'circle-opacity': ['interpolate', ['linear'], ['coalesce', ['get', 'density_10km2'], 0], 0.4, 0.52, 4, 0.78, 12, 0.94],
+      'circle-radius': radius(0.98),
+      'circle-opacity': ['interpolate', ['linear'], ['coalesce', ['get', 'density_5km2'], 0], 0.2, 0.28, 2.0, 0.45, 6.0, 0.64],
       'circle-stroke-width': 0,
+      'circle-opacity-transition': { duration: 360, delay: 0 },
+      'circle-radius-transition': { duration: 1050, delay: 0 },
     },
   });
+
+  // Subtle GPU-interpolated ember pulse (~1.1s cycle), disabled when reduced motion is requested
+  const reducedMotion = typeof window.matchMedia === 'function'
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let pulseHigh = false;
+  let pulseTimer = null;
+  if (!reducedMotion) {
+    pulseTimer = setInterval(() => {
+      if (document.hidden || !map.getLayer('fires-glow')) return;
+      pulseHigh = !pulseHigh;
+      map.setPaintProperty('fires-glow', 'circle-opacity', pulseHigh
+        ? ['interpolate', ['linear'], ['coalesce', ['get', 'density_5km2'], 0], 0.2, 0.11, 5.0, 0.23]
+        : ['interpolate', ['linear'], ['coalesce', ['get', 'density_5km2'], 0], 0.2, 0.07, 5.0, 0.16]);
+      map.setPaintProperty('fires-glow', 'circle-radius', radius(pulseHigh ? 2.35 : 2.05));
+      map.setPaintProperty('fires-dot', 'circle-radius', radius(pulseHigh ? 1.03 : 0.96));
+    }, 1150);
+    map.on('remove', () => clearInterval(pulseTimer));
+  }
 
   const popup = new window.maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 8 });
   map.on('mouseenter', 'fires-dot', (e) => {
     const f = e.features && e.features[0];
     if (!f) return;
     const p = f.properties;
-    const dens = Number(p.density_10km2 || 0).toFixed(1);
+    const dens = Number(p.density_5km2 || 0).toFixed(1);
     map.getCanvas().style.cursor = 'pointer';
     popup.setLngLat(e.lngLat)
-      .setHTML(`<strong>${dens} / 10 km²</strong> · ${fmt(p.count, 'fire_count')} detections · ${fmt(p.frp_sum, 'fire_frp')} MW · ${p.first}–${p.last}`)
+      .setHTML(`<strong>${dens} / 5 km²</strong> · ${fmt(p.count, 'fire_count')} detections · ${fmt(p.frp_sum, 'fire_frp')} MW · ${p.first}–${p.last}`)
       .addTo(map);
   });
   map.on('mousemove', 'fires-dot', (e) => popup.setLngLat(e.lngLat));

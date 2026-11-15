@@ -78,7 +78,6 @@
 
 #infobox .ibx-box { border: 0; border-radius: 0; background: transparent; }
 #infobox .ibx-caption { padding: 15px 20px 11px; border-bottom: 1px solid var(--c-edge); }
-#infobox .ibx-badge { right: 18px; top: 15px; border-radius: 6px; }
 #infobox .ibx-row th, #infobox .ibx-row td { border-bottom-color: var(--c-edge); }
 #infobox .ibx-row th { padding-left: 18px; }
 #infobox .ibx-value { white-space: normal; overflow-wrap: break-word; }
@@ -136,7 +135,6 @@
   #map-legend { left: 10px; bottom: 66px; }
   #fig1 .f1-root, #fig2 .f2-root, #fig3 .f3-root { padding: 14px 14px 12px; }
   #infobox .ibx-caption { padding: 12px 14px 8px; }
-  #infobox .ibx-badge { right: 12px; top: 12px; }
   #infobox .ibx-foot { padding: 9px 14px 11px; }
 }
 
