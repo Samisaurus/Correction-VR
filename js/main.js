@@ -1,8 +1,6 @@
 // js/main.js
 // Purpose: app entry. Builds ctx = { store, data, theme } and mounts every module into its slot.
 
-import '../css/tokens.css';
-import '../css/layout.css';
 import { store } from './store.js';
 import * as data from './data.js';
 import * as theme from './theme.js';
