@@ -80,20 +80,32 @@ test('structural Canada rivers.geojson scores cleanly across low-fire vs megafir
   assert.deepEqual(csvRows, [{ lat: 54.2, lon: -122.5, frp: 42.5 }]);
 });
 
-test('accurate 50m country borders GeoJSON has all 3 countries and zero antimeridian jumps', () => {
+test('accurate 50m country borders exist in both public/country-borders.geojson and data/*/geo.geojson with zero antimeridian jumps', () => {
   const fc = JSON.parse(fs.readFileSync('public/country-borders.geojson', 'utf8'));
   assert.equal(fc.type, 'FeatureCollection');
   assert.deepEqual(fc.features.map((f) => f.properties.id).sort(), ['canada', 'russia', 'usa']);
 
-  for (const f of fc.features) {
-    const polys = f.geometry.type === 'MultiPolygon' ? f.geometry.coordinates : [f.geometry.coordinates];
+  const checkNoJumps = (geom) => {
+    const polys = geom.type === 'MultiPolygon' ? geom.coordinates : [geom.coordinates];
+    let pts = 0;
     for (const poly of polys) {
       for (const ring of poly) {
+        pts += ring.length;
         for (let i = 1; i < ring.length; i += 1) {
           assert.ok(Math.abs(ring[i][0] - ring[i - 1][0]) < 10);
         }
       }
     }
+    return pts;
+  };
+
+  for (const f of fc.features) {
+    assert.ok(checkNoJumps(f.geometry) > 4000);
+  }
+  for (const cid of ['canada', 'usa', 'russia']) {
+    const g = JSON.parse(fs.readFileSync(`data/${cid}/geo.geojson`, 'utf8'));
+    const cf = g.features.find((f) => f.properties && f.properties.kind === 'country');
+    assert.ok(cf && checkNoJumps(cf.geometry) > 4000, `${cid}/geo.geojson should use 1:50m country geometry`);
   }
 });
 

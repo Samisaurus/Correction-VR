@@ -29,9 +29,23 @@ async function fetchJson(url) {
   return cache.get(url);
 }
 
+async function fetchJsonOptional(url) {
+  if (!cache.has(url)) {
+    cache.set(url, (async () => {
+      try {
+        const res = await fetch(url);
+        return res.ok ? await res.json() : null;
+      } catch {
+        return null;
+      }
+    })());
+  }
+  return cache.get(url);
+}
+
 async function getManifest() {
   if (typeof fetch !== 'function') return null;
-  return fetchJson(`${BASE}manifest.json`);
+  return fetchJsonOptional(`${BASE}manifest.json`);
 }
 
 // ---- Streaming, non-blocking CSV parser & spatial aggregator for 20–60+ MB CSVs ----------------
@@ -505,11 +519,12 @@ export async function getScope(state) {
   return cache.get(key);
 }
 
-/** Load accurate 50m country borders (fallback to per-country geo.geojson if unavailable). */
+/** Load accurate 50m country borders (falls back cleanly to 50m data/<country>/geo.geojson). */
 export async function getAllCountriesGeo() {
   const regions = await getRegions();
   if (!regions || !Array.isArray(regions.countries)) return [];
-  const bordersFc = await fetchJson('./country-borders.geojson');
+  const bordersFc = (await fetchJsonOptional('./country-borders.geojson'))
+    || (await fetchJsonOptional('./public/country-borders.geojson'));
   if (bordersFc && Array.isArray(bordersFc.features) && bordersFc.features.length) {
     const byId = new Map();
     for (const f of bordersFc.features) {
