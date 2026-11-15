@@ -184,9 +184,10 @@ export async function mount(el, ctx) {
   function updateValues(state) {
     if (!current || !nodeRefs.length) return;
     const { meta, series } = current;
+    const focusGroup = VARS[state.focus] ? VARS[state.focus].group : null;
     for (let i = 0; i < nodeRefs.length; i += 1) {
       const ref = nodeRefs[i];
-      ref.node.classList.toggle('is-focus', state.focus === ref.varId);
+      ref.node.classList.toggle('is-focus', state.focus === ref.varId || (focusGroup && focusGroup === ref.group));
       if (ref.unavailable) continue;
       const value = data.annualValue(series, ref.varId, state.year, ref.group === 'water' ? meta.primaryWaterBody : undefined);
       ref.valEl.textContent = theme.fmt(value, ref.varId);

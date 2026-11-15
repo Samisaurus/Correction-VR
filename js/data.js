@@ -1,6 +1,7 @@
 // js/data.js
 // Purpose: cached loader for ./data/ (GeoJSON/JSON + streaming large-CSV adapter & grid aggregator)
-//          with automatic discovery of copy-pasted csv_by_year folders and basin bbox filtering.
+//          with automatic discovery of copy-pasted csv_by_year folders, pre-indexed multi-year series,
+//          dynamic before/after statistical tests, and basin bbox filtering.
 
 import { DATA_CONFIG } from './data-config.js';
 
@@ -46,6 +47,11 @@ async function fetchJsonOptional(url) {
 async function getManifest() {
   if (typeof fetch !== 'function') return null;
   return fetchJsonOptional(`${BASE}manifest.json`);
+}
+
+async function getScopeIndex() {
+  if (typeof fetch !== 'function') return null;
+  return fetchJsonOptional(`${BASE}scope-index.json`);
 }
 
 // ---- Streaming, non-blocking CSV parser & spatial aggregator for 20–60+ MB CSVs ----------------
@@ -361,12 +367,21 @@ function topKeyFromCounts(map) {
   return bestKey ? { name: bestKey, value: bestVal } : null;
 }
 
-async function loadSummaryData(entry) {
-  if (!entry || (!entry.summaryByYear && !entry.summaryByForest)) return null;
-  const byYear = new Map();
-  const topForests = [];
+function quantileSorted(sorted, q) {
+  if (!sorted.length) return null;
+  const pos = Math.min(sorted.length - 1, Math.max(0, Math.floor(q * (sorted.length - 1))));
+  return sorted[pos];
+}
 
-  if (entry.summaryByYear) {
+async function loadSummaryData(entry, preIndexed) {
+  const byYear = new Map();
+  const allForests = [];
+
+  if (preIndexed && Array.isArray(preIndexed.summaryByYear) && preIndexed.summaryByYear.length) {
+    for (const row of preIndexed.summaryByYear) {
+      byYear.set(row.year, { ...row });
+    }
+  } else if (entry && entry.summaryByYear) {
     await streamCsv(entry.summaryByYear, (cells, cols, headers) => {
       const yr = parseYear(cols.year >= 0 ? cells[cols.year] : undefined, undefined);
       if (!Number.isInteger(yr)) return;
@@ -384,45 +399,273 @@ async function loadSummaryData(entry) {
       const allTotal = getN('all_total') || (modisTotal + viirsTotal);
       byYear.set(yr, {
         year: yr,
+        modisHighFrp: modisHigh,
+        modisLowFrp: modisLow,
+        viirsHighFrp: viirsHigh,
+        viirsLowFrp: viirsLow,
         modisTotal,
         viirsTotal,
         allTotal,
-        modisHighFrp: modisHigh,
-        viirsHighFrp: viirsHigh,
       });
     }, 0);
   }
 
-  if (entry.summaryByForest) {
+  if (preIndexed && preIndexed.years) {
+    for (const [yrStr, detail] of Object.entries(preIndexed.years)) {
+      const yr = Number(yrStr);
+      const prev = byYear.get(yr) || { year: yr, modisTotal: detail.detections, viirsTotal: 0, allTotal: detail.detections };
+      byYear.set(yr, {
+        ...prev,
+        detections: detail.detections,
+        totalFrpMw: detail.totalFrpMw,
+        maxFrpMw: detail.maxFrpMw,
+        meanFrpMw: detail.meanFrpMw,
+        highFrpCount: detail.highFrpCount,
+        lowFrpCount: detail.lowFrpCount,
+        inNationalForestCount: detail.inNationalForestCount,
+        otherForestCount: detail.otherForestCount,
+        terraCount: detail.terraCount,
+        aquaCount: detail.aquaCount,
+        dayCount: detail.dayCount,
+        nightCount: detail.nightCount,
+        topStates: detail.topStates,
+        topForests: detail.topForests,
+        topNationalForests: detail.topNationalForests,
+        sensor: detail.sensor,
+      });
+    }
+  }
+
+  if (preIndexed && Array.isArray(preIndexed.allForests) && preIndexed.allForests.length) {
+    allForests.push(...preIndexed.allForests);
+  } else if (entry && entry.summaryByForest) {
     await streamCsv(entry.summaryByForest, (cells, cols, headers) => {
       const idxOf = (name) => headers.findIndex((h) => h.toLowerCase() === name);
       const fIdx = cols.forest >= 0 ? cols.forest : idxOf('forest_name');
       const sIdx = cols.state >= 0 ? cols.state : idxOf('state');
+      const mModis = idxOf('modis');
+      const mViirs = idxOf('viirs');
       const tIdx = idxOf('total');
       const mIdx = idxOf('max_frp_mw');
       const name = fIdx >= 0 ? String(cells[fIdx] || '').trim() : '';
       const state = sIdx >= 0 ? String(cells[sIdx] || '').trim() : '';
+      const modis = mModis >= 0 ? (toNum(cells[mModis]) ?? 0) : 0;
+      const viirs = mViirs >= 0 ? (toNum(cells[mViirs]) ?? 0) : 0;
       const total = tIdx >= 0 ? (toNum(cells[tIdx]) ?? 0) : 0;
       const maxFrpMw = mIdx >= 0 ? (toNum(cells[mIdx]) ?? 0) : 0;
-      if (name && total > 0 && topForests.length < 15) {
-        topForests.push({ name, state, total, maxFrpMw });
+      if (name && total > 0) {
+        allForests.push({ name, state, modis, viirs, total, maxFrpMw });
       }
     }, 0);
   }
 
-  const totals = Array.from(byYear.values()).map((d) => d.allTotal).filter((v) => v > 0).sort((a, b) => a - b);
-  const quantile = (q) => {
-    if (!totals.length) return null;
-    const pos = Math.min(totals.length - 1, Math.max(0, Math.floor(q * (totals.length - 1))));
-    return totals[pos];
-  };
+  if (!byYear.size && !allForests.length && !preIndexed) return null;
+
+  const modisTotals = Array.from(byYear.values())
+    .map((d) => d.modisTotal || d.detections || d.allTotal)
+    .filter((v) => v > 0)
+    .sort((a, b) => a - b);
+  const frpTotals = Array.from(byYear.values())
+    .map((d) => d.totalFrpMw)
+    .filter((v) => Number.isFinite(v) && v > 0)
+    .sort((a, b) => a - b);
+
   return {
     byYear,
-    topForests,
-    medianTotal: quantile(0.5),
-    p75Total: quantile(0.75),
-    p90Total: quantile(0.9),
+    allForests,
+    topForests: allForests.slice(0, 15),
+    forestYearsByYear: (preIndexed && preIndexed.forestYearsByYear) || {},
+    viirsOutageDates: (preIndexed && preIndexed.viirsOutageDates) || [],
+    viirsOutageByYear: (preIndexed && preIndexed.viirsOutageByYear) || {},
+    medianTotal: quantileSorted(modisTotals, 0.5),
+    p75Total: quantileSorted(modisTotals, 0.75),
+    p90Total: quantileSorted(modisTotals, 0.9),
+    medianFrp: quantileSorted(frpTotals, 0.5),
+    p75Frp: quantileSorted(frpTotals, 0.75),
+    p90Frp: quantileSorted(frpTotals, 0.9),
   };
+}
+
+// ---- Dynamic statistical helpers (for CSV-only datasets without pre-baked stats.json) -----------
+
+function erfcApprox(x) {
+  const z = Math.abs(x);
+  const t = 1 / (1 + 0.5 * z);
+  const ans = t * Math.exp(-z * z - 1.26551223 + t * (1.00002368 + t * (0.37409196
+    + t * (0.09678418 + t * (-0.18628806 + t * (0.27886807 + t * (-1.13520398
+    + t * (1.48851587 + t * (-0.82215223 + t * 0.17087277)))))))));
+  return x >= 0 ? ans : 2 - ans;
+}
+
+function normalCdf(z) {
+  return 0.5 * erfcApprox(-z / Math.SQRT2);
+}
+
+// Accurate two-tailed p-value for Student's t using Peizer-Pratt approximation for small df
+function studentTTwoTailedP(tAbs, df) {
+  if (!Number.isFinite(tAbs) || !Number.isFinite(df) || df <= 0) return 1;
+  if (df > 200) return 2 * (1 - normalCdf(tAbs));
+  // Numerical integration of Student's t PDF tail via Simpson's rule over transformed u in [0, 1]
+  // where t = tAbs + (1 - u)/u? Simpler: integrate PDF from 0 to tAbs and subtract from 0.5!
+  // For tAbs > 20, use asymptotic expansion / normal approx clamped safely.
+  if (tAbs === 0) return 1;
+  const logGamma = (z) => {
+    const c = [76.18009172947146, -86.50532032941677, 24.01409824083091,
+      -1.231739572450155, 0.001208650973866179, -0.000005395239384953];
+    let x = z;
+    let y = z;
+    let tmp = x + 5.5;
+    tmp -= (x + 0.5) * Math.log(tmp);
+    let ser = 1.000000000190015;
+    for (let j = 0; j < 6; j += 1) { y += 1; ser += c[j] / y; }
+    return -tmp + Math.log(2.5066282746310005 * ser / x);
+  };
+  const betacf = (a, b, x) => {
+    const MAXIT = 100;
+    const EPS = 3e-7;
+    const FPMIN = 1e-30;
+    const qab = a + b;
+    const qap = a + 1;
+    const qam = a - 1;
+    let c = 1;
+    let d = 1 - qab * x / qap;
+    if (Math.abs(d) < FPMIN) d = FPMIN;
+    d = 1 / d;
+    let h = d;
+    for (let m = 1; m <= MAXIT; m += 1) {
+      const m2 = 2 * m;
+      let aa = m * (b - m) * x / ((qam + m2) * (a + m2));
+      d = 1 + aa * d;
+      if (Math.abs(d) < FPMIN) d = FPMIN;
+      c = 1 + aa / c;
+      if (Math.abs(c) < FPMIN) c = FPMIN;
+      d = 1 / d;
+      h *= d * c;
+      aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2));
+      d = 1 + aa * d;
+      if (Math.abs(d) < FPMIN) d = FPMIN;
+      c = 1 + aa / c;
+      if (Math.abs(c) < FPMIN) c = FPMIN;
+      d = 1 / d;
+      const del = d * c;
+      h *= del;
+      if (Math.abs(del - 1) < EPS) break;
+    }
+    return h;
+  };
+  const a = df / 2;
+  const b = 0.5;
+  const x = df / (df + tAbs * tAbs);
+  const bt = Math.exp(logGamma(a + b) - logGamma(a) - logGamma(b) + a * Math.log(x) + b * Math.log(1 - x));
+  if (x < (a + 1) / (a + b + 2)) return Math.min(1, Math.max(0, (bt * betacf(a, b, x)) / a));
+  return Math.min(1, Math.max(0, 1 - (bt * betacf(b, a, 1 - x)) / b));
+}
+
+function mannWhitneyP(xs, ys) {
+  const n1 = xs.length;
+  const n2 = ys.length;
+  if (n1 < 2 || n2 < 2) return 1;
+  const all = [
+    ...xs.map((v) => ({ v, g: 0 })),
+    ...ys.map((v) => ({ v, g: 1 })),
+  ].sort((a, b) => a.v - b.v);
+  let r1 = 0;
+  let tieAdj = 0;
+  let i = 0;
+  while (i < all.length) {
+    let j = i + 1;
+    while (j < all.length && all[j].v === all[i].v) j += 1;
+    const t = j - i;
+    const avgRank = (i + 1 + j) / 2;
+    for (let k = i; k < j; k += 1) if (all[k].g === 0) r1 += avgRank;
+    if (t > 1) tieAdj += t * t * t - t;
+    i = j;
+  }
+  const u1 = r1 - (n1 * (n1 + 1)) / 2;
+  const mu = (n1 * n2) / 2;
+  const n = n1 + n2;
+  const sigma = Math.sqrt(((n1 * n2) / 12) * (n + 1 - tieAdj / (n * (n - 1))));
+  if (!sigma) return 1;
+  const z = Math.abs(u1 - mu) / sigma;
+  return Math.min(1, Math.max(0, 2 * (1 - normalCdf(z))));
+}
+
+function welchTest(beforeVals, afterVals) {
+  const n1 = beforeVals.length;
+  const n2 = afterVals.length;
+  if (n1 < 2 || n2 < 2) return null;
+  const mean = (arr) => arr.reduce((a, b) => a + b, 0) / arr.length;
+  const m1 = mean(beforeVals);
+  const m2 = mean(afterVals);
+  const var1 = beforeVals.reduce((s, x) => s + (x - m1) ** 2, 0) / (n1 - 1);
+  const var2 = afterVals.reduce((s, x) => s + (x - m2) ** 2, 0) / (n2 - 1);
+  const se2 = var1 / n1 + var2 / n2;
+  if (se2 <= 0) return { mean_before: m1, mean_after: m2, welch_t: 0, df: n1 + n2 - 2, p: 1, cohens_d: 0, mannwhitney_p: 1 };
+  const t = (m2 - m1) / Math.sqrt(se2);
+  const df = (se2 * se2) / (((var1 / n1) ** 2) / (n1 - 1) + ((var2 / n2) ** 2) / (n2 - 1));
+  const pooled = Math.sqrt(((n1 - 1) * var1 + (n2 - 1) * var2) / Math.max(1, n1 + n2 - 2));
+  const d = pooled > 0 ? (m2 - m1) / pooled : 0;
+  return {
+    mean_before: m1,
+    mean_after: m2,
+    welch_t: t,
+    df,
+    p: studentTTwoTailedP(Math.abs(t), df),
+    cohens_d: d,
+    mannwhitney_p: mannWhitneyP(beforeVals, afterVals),
+  };
+}
+
+export function computeBeforeAfterStats(series, meta) {
+  if (!series || !series.variables || !meta || !Array.isArray(meta.eventYears) || !meta.eventYears.length) {
+    return null;
+  }
+  const [y0] = Array.isArray(meta.years) ? meta.years : [2002, 2026];
+  const months = [5, 6, 7, 8, 9];
+  const beforeAfter = [];
+  const candidateVars = ['fire_frp', 'fire_count', 'aod', 'kd490', 'chlor_a'];
+
+  for (const varId of candidateVars) {
+    const wb = isWaterVar(varId) ? meta.primaryWaterBody : undefined;
+    const pts = monthlySeries(series, varId, wb);
+    if (!pts.length) continue;
+
+    const byYear = new Map();
+    for (const p of pts) {
+      if (p.value === null) continue;
+      const y = p.date.getUTCFullYear();
+      const m = p.date.getUTCMonth() + 1;
+      if (!months.includes(m)) continue;
+      if (!byYear.has(y)) byYear.set(y, []);
+      byYear.get(y).push(p.value);
+    }
+
+    for (const event of meta.eventYears) {
+      const beforeYears = [];
+      for (let y = Math.max(y0, event - 3); y < event; y += 1) {
+        if (byYear.has(y)) beforeYears.push(y);
+      }
+      const afterYears = byYear.has(event) ? [event] : [];
+      if (!beforeYears.length || !afterYears.length) continue;
+      const bVals = beforeYears.flatMap((y) => byYear.get(y));
+      const aVals = afterYears.flatMap((y) => byYear.get(y));
+      const res = welchTest(bVals, aVals);
+      if (!res) continue;
+      beforeAfter.push({
+        variable: varId,
+        waterBody: wb || null,
+        event,
+        before_years: beforeYears,
+        after_years: afterYears,
+        months,
+        n_before: bVals.length,
+        n_after: aVals.length,
+        ...res,
+      });
+    }
+  }
+
+  return beforeAfter.length ? { beforeAfter, links: [], trends: [] } : null;
 }
 
 async function loadSpatialCsvByYear(sources, kind, scope, isBasin, defaultYear, clipBbox) {
@@ -452,9 +695,18 @@ async function loadSpatialCsvByYear(sources, kind, scope, isBasin, defaultYear, 
           detections: 0,
           totalFrpMw: 0,
           maxFrpMw: 0,
+          highFrpCount: 0,
+          lowFrpCount: 0,
+          inNationalForestCount: 0,
+          otherForestCount: 0,
+          terraCount: 0,
+          aquaCount: 0,
+          dayCount: 0,
+          nightCount: 0,
           sensor,
           stateCounts: new Map(),
           forestCounts: new Map(),
+          nationalForestCounts: new Map(),
         };
         statsByYear.set(yr, s);
       }
@@ -488,12 +740,37 @@ async function loadSpatialCsvByYear(sources, kind, scope, isBasin, defaultYear, 
           const count = cols.count >= 0 ? (toNum(cells[cols.count]) ?? 1) : 1;
           const frp = cols.frp >= 0 ? (toNum(cells[cols.frp]) ?? 0) : 0;
           const dateStr = cols.date >= 0 ? (cells[cols.date] || `${yr}-07-01`) : `${yr}-07-01`;
+          const frpClass = cols.frpClass >= 0 ? String(cells[cols.frpClass] || '').trim().toLowerCase() : '';
+          const isHighFrp = frpClass === 'high';
+          const inNf = cols.inNationalForest >= 0 ? String(cells[cols.inNationalForest] || '').trim().toLowerCase() === 'true' : false;
+          const sat = cols.satellite >= 0 ? String(cells[cols.satellite] || '').trim().toLowerCase() : '';
+          const dn = cols.dayNight >= 0 ? String(cells[cols.dayNight] || '').trim().toLowerCase() : '';
+          const stateName = cols.state >= 0 ? String(cells[cols.state] || '').trim() : '';
+          const fName = cols.forest >= 0 ? String(cells[cols.forest] || '').trim() : '';
+
           const cur = yearMap.get(key);
           if (!cur) {
-            yearMap.set(key, { lon: snapLon, lat: snapLat, count, frp_sum: frp, first: dateStr, last: dateStr });
+            yearMap.set(key, {
+              lon: snapLon,
+              lat: snapLat,
+              count,
+              frp_sum: frp,
+              max_frp: frp,
+              high_frp: isHighFrp ? count : 0,
+              first: dateStr,
+              last: dateStr,
+              state: stateName,
+              forest: fName,
+            });
           } else {
             cur.count += count;
             cur.frp_sum += frp;
+            if (frp > cur.max_frp) {
+              cur.max_frp = frp;
+              if (stateName) cur.state = stateName;
+              if (fName) cur.forest = fName;
+            }
+            if (isHighFrp) cur.high_frp += count;
             if (dateStr < cur.first) cur.first = dateStr;
             if (dateStr > cur.last) cur.last = dateStr;
           }
@@ -502,14 +779,20 @@ async function loadSpatialCsvByYear(sources, kind, scope, isBasin, defaultYear, 
           st.detections += count;
           st.totalFrpMw += frp;
           if (frp > st.maxFrpMw) st.maxFrpMw = frp;
-          if (cols.state >= 0) {
-            const stateName = String(cells[cols.state] || '').trim();
-            if (stateName) st.stateCounts.set(stateName, (st.stateCounts.get(stateName) || 0) + count);
-          }
-          if (cols.forest >= 0) {
-            const fName = String(cells[cols.forest] || '').trim();
-            if (fName && !fName.startsWith('Other forest land')) {
-              st.forestCounts.set(fName, (st.forestCounts.get(fName) || 0) + count);
+          if (isHighFrp) st.highFrpCount += count;
+          else if (frpClass === 'low') st.lowFrpCount += count;
+          if (inNf) st.inNationalForestCount += count;
+          else st.otherForestCount += count;
+          if (sat === 'terra') st.terraCount += count;
+          else if (sat === 'aqua') st.aquaCount += count;
+          if (dn === 'day') st.dayCount += count;
+          else if (dn === 'night') st.nightCount += count;
+
+          if (stateName) st.stateCounts.set(stateName, (st.stateCounts.get(stateName) || 0) + count);
+          if (fName) {
+            st.forestCounts.set(fName, (st.forestCounts.get(fName) || 0) + count);
+            if (inNf || !fName.startsWith('Other forest land')) {
+              st.nationalForestCounts.set(fName, (st.nationalForestCounts.get(fName) || 0) + count);
             }
           }
         } else {
@@ -535,7 +818,16 @@ async function loadSpatialCsvByYear(sources, kind, scope, isBasin, defaultYear, 
           features.push({
             type: 'Feature',
             geometry: { type: 'Point', coordinates: [item.lon, item.lat] },
-            properties: { count: Math.round(item.count), frp_sum: Number(item.frp_sum.toFixed(1)), first: item.first, last: item.last },
+            properties: {
+              count: Math.round(item.count),
+              frp_sum: Number(item.frp_sum.toFixed(1)),
+              max_frp: Number(item.max_frp.toFixed(1)),
+              high_frp: Math.round(item.high_frp),
+              first: item.first,
+              last: item.last,
+              state: item.state || undefined,
+              forest: item.forest || undefined,
+            },
           });
         } else {
           features.push({
@@ -553,11 +845,20 @@ async function loadSpatialCsvByYear(sources, kind, scope, isBasin, defaultYear, 
         detections: Math.round(st.detections),
         totalFrpMw: Math.round(st.totalFrpMw),
         maxFrpMw: Math.round(st.maxFrpMw),
+        highFrpCount: Math.round(st.highFrpCount),
+        lowFrpCount: Math.round(st.lowFrpCount),
+        inNationalForestCount: Math.round(st.inNationalForestCount),
+        otherForestCount: Math.round(st.otherForestCount),
+        terraCount: Math.round(st.terraCount),
+        aquaCount: Math.round(st.aquaCount),
+        dayCount: Math.round(st.dayCount),
+        nightCount: Math.round(st.nightCount),
         sensor: st.sensor,
         topState: topKeyFromCounts(st.stateCounts),
         topForest: topKeyFromCounts(st.forestCounts),
+        topNationalForest: topKeyFromCounts(st.nationalForestCounts),
       } : null;
-      collections.set(yr, { type: 'FeatureCollection', scope, year: yr, features, summary });
+      collections.set(yr, { type: 'FeatureCollection', scope, year: yr, gridDeg, features, summary });
     }
     return collections;
   })();
@@ -622,40 +923,72 @@ export async function getScope(state) {
   if (!cache.has(key)) {
     cache.set(key, (async () => {
       const csvOnly = DATA_CONFIG.mode === 'csv';
-      const [resolvedSeries, manifest] = await Promise.all([
+      const [resolvedSeries, manifest, scopeIndex] = await Promise.all([
         DATA_CONFIG.mode !== 'geojson' ? resolveSourcesForYear(path, 'series', '') : Promise.resolve({ sources: [] }),
         getManifest(),
+        DATA_CONFIG.mode !== 'geojson' ? getScopeIndex() : Promise.resolve(null),
       ]);
       const mEntry = manifest && manifest.scopes ? manifest.scopes[path] : null;
-      const [geo, rivers, seriesJson, stats, seriesFromCsv, summary] = await Promise.all([
+      const preIndexed = scopeIndex && scopeIndex.scopes ? scopeIndex.scopes[path] : null;
+      const [geo, rivers, seriesJson, statsJson, seriesFromCsv, summary] = await Promise.all([
         fetchJson(`${BASE}${path}/geo.geojson`),
         fetchJson(`${BASE}${path}/rivers.geojson`),
         csvOnly ? Promise.resolve(null) : fetchJson(`${BASE}${path}/series.json`),
         csvOnly ? Promise.resolve(null) : fetchJson(`${BASE}${path}/stats.json`),
         resolvedSeries.sources.length ? loadSeriesCsv(resolvedSeries.sources, path) : Promise.resolve(null),
-        DATA_CONFIG.mode !== 'geojson' ? loadSummaryData(mEntry) : Promise.resolve(null),
+        DATA_CONFIG.mode !== 'geojson' ? loadSummaryData(mEntry, preIndexed) : Promise.resolve(null),
       ]);
 
+      const meta = buildMeta(country, view, regions);
+      const [y0, y1] = Array.isArray(regions.years) ? regions.years : [2002, 2026];
+      const filterByYears = (pairs) => (pairs || []).filter(([yr]) => Number(yr) >= y0 && Number(yr) <= y1);
+      const filterMonthlyByYears = (pairs) => (pairs || []).filter(([ym]) => {
+        const yr = Number(String(ym).slice(0, 4));
+        return yr >= y0 && yr <= y1;
+      });
+
       let mergedSeries = seriesFromCsv || seriesJson;
-      if (summary && summary.byYear && summary.byYear.size) {
+      if (preIndexed && preIndexed.series) {
         if (!mergedSeries) mergedSeries = { scope: path, variables: {}, waterBodies: {} };
-        if (!mergedSeries.variables.fire_count) {
-          const [y0, y1] = Array.isArray(regions.years) ? regions.years : [2012, 2025];
-          const annual = [];
-          for (const row of Array.from(summary.byYear.values()).sort((a, b) => a.year - b.year)) {
-            if (row.year >= y0 && row.year <= y1) {
-              annual.push([row.year, row.allTotal || row.viirsTotal || row.modisTotal]);
-            }
-          }
-          if (annual.length) mergedSeries.variables.fire_count = { annual, monthly: [] };
+        if (!mergedSeries.variables.fire_count && preIndexed.series.fire_count) {
+          mergedSeries.variables.fire_count = {
+            annual: filterByYears(preIndexed.series.fire_count.annual),
+            monthly: filterMonthlyByYears(preIndexed.series.fire_count.monthly),
+          };
+        }
+        if (!mergedSeries.variables.fire_frp && preIndexed.series.fire_frp) {
+          mergedSeries.variables.fire_frp = {
+            annual: filterByYears(preIndexed.series.fire_frp.annual),
+            monthly: filterMonthlyByYears(preIndexed.series.fire_frp.monthly),
+          };
         }
       }
 
+      if (summary && summary.byYear && summary.byYear.size) {
+        if (!mergedSeries) mergedSeries = { scope: path, variables: {}, waterBodies: {} };
+        const rows = Array.from(summary.byYear.values())
+          .filter((r) => r.year >= y0 && r.year <= y1)
+          .sort((a, b) => a.year - b.year);
+        if (!mergedSeries.variables.fire_count) {
+          const annual = rows
+            .map((r) => [r.year, r.modisTotal || r.detections || r.allTotal])
+            .filter(([, v]) => v > 0);
+          if (annual.length) mergedSeries.variables.fire_count = { annual, monthly: [] };
+        }
+        if (!mergedSeries.variables.viirs_count) {
+          const viirsAnnual = rows
+            .filter((r) => r.viirsTotal > 0)
+            .map((r) => [r.year, r.viirsTotal]);
+          if (viirsAnnual.length) mergedSeries.variables.viirs_count = { annual: viirsAnnual, monthly: [] };
+        }
+      }
+
+      const stats = statsJson || computeBeforeAfterStats(mergedSeries, meta);
       const fireEntries = mEntry && Array.isArray(mEntry.fires)
         ? mEntry.fires
         : (view === 'basin' && manifest && manifest.scopes && manifest.scopes[country.id] && manifest.scopes[country.id].fires) || [];
       return {
-        meta: buildMeta(country, view, regions),
+        meta,
         geo,
         rivers,
         series: mergedSeries,

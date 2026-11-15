@@ -33,11 +33,20 @@ const STYLE = `
 .f1-stats .f1-muted strong { color: var(--c-muted); font-weight: 600; }
 .f1-cap { font-size: 12.5px; font-style: italic; color: var(--c-muted); margin: 4px 0 0; }
 .f1-link { color: var(--c-link); font-weight: 600; }
+.f1-subseg { display: inline-flex; gap: 4px; margin-top: 6px; }
+.f1-subseg button {
+  border: 1px solid var(--c-edge); border-radius: 5px; padding: 2px 8px;
+  font-family: var(--f-mono); font-size: 11px; font-weight: 500;
+  color: var(--c-muted); background: var(--c-paper);
+}
+.f1-subseg button[aria-pressed="true"] {
+  border-color: var(--c-fire); color: var(--c-fire); background: rgba(213, 94, 0, 0.08); font-weight: 600;
+}
 `;
 const DAY = (y, m = 0, d = 1) => new Date(Date.UTC(y, m, d));
 const NS = 'http://www.w3.org/2000/svg';
 const PLOT_H = 248;
-const MARGIN_L = 64;
+const MARGIN_L = 56;
 const MARGIN_R = 20;
 const MARGIN_T = 30;
 const MARGIN_B = 28;
@@ -144,13 +153,16 @@ export async function mount(el, ctx) {
     segButtons[g] = b;
   }
   head.append(title, seg);
+  const subSeg = document.createElement('div');
+  subSeg.className = 'f1-subseg';
+  subSeg.hidden = true;
   const plotBox = document.createElement('div');
   plotBox.className = 'f1-plot';
   const stats = document.createElement('p');
   stats.className = 'f1-stats';
   const cap = document.createElement('p');
   cap.className = 'f1-cap';
-  root.append(head, plotBox, stats, cap);
+  root.append(head, subSeg, plotBox, stats, cap);
   el.appendChild(root);
 
   let current = null;
@@ -180,8 +192,28 @@ export async function mount(el, ctx) {
     }
     const v = VARS[focus];
     for (const g of GROUPS) segButtons[g].setAttribute('aria-pressed', String(v.group === g));
+    subSeg.innerHTML = '';
+    if (v.group === 'fire' && series) {
+      const fireVars = [
+        { id: 'fire_frp', label: 'Fire power (MW)' },
+        { id: 'fire_count', label: 'MODIS detections' },
+        { id: 'viirs_count', label: 'VIIRS (2012+)' },
+      ].filter((opt) => data.annualSeries(series, opt.id).some((d) => d.value !== null));
+      subSeg.hidden = fireVars.length <= 1;
+      for (const opt of fireVars) {
+        const sb = document.createElement('button');
+        sb.type = 'button';
+        sb.textContent = opt.label;
+        sb.setAttribute('aria-pressed', String(focus === opt.id));
+        sb.addEventListener('click', () => store.set({ focus: opt.id }));
+        subSeg.appendChild(sb);
+      }
+    } else {
+      subSeg.hidden = true;
+    }
+
     const unit = theme.unitFor(focus, meta);
-    const [y0, y1] = meta.years || [2012, 2025];
+    const [y0, y1] = meta.years || [2002, 2026];
     cap.innerHTML = `<strong>Fig. 1</strong> — ${v.label}, ${meta.name}, ${y0}–${y1}. Thick line: Sen slope.`;
     plotBox.innerHTML = '';
     stats.innerHTML = '';
@@ -215,12 +247,18 @@ export async function mount(el, ctx) {
       : [];
     const width = Math.max(260, plotBox.clientWidth || el.clientWidth - 40 || 420);
     lastWidth = width;
-    const step = width < 520 ? 2 : 1;
+    const spanYears = y1 - y0 + 1;
+    const step = spanYears > 16 ? (width < 480 ? 4 : 3) : (width < 520 ? 2 : 1);
     const ticks = [];
     for (let y = y0; y <= y1; y += step) ticks.push(DAY(y));
     const events = (meta.eventYears || []).map((y) => ({ date: DAY(y, 6, 1), year: y }));
     const isWater = data.isWaterVar(focus);
     const monthlyShown = isWater ? monthly.filter((d) => [5, 6, 7, 8, 9].includes(d.date.getUTCMonth() + 1)) : monthly;
+    const fmtCompactTick = (val) => {
+      if (Math.abs(val) >= 1_000_000) return `${(val / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+      if (Math.abs(val) >= 10_000) return `${Math.round(val / 1_000)}k`;
+      return String(val);
+    };
     const marks = [
       Plot.gridY({ stroke: COLORS.rule, strokeOpacity: 0.5 }),
       monthlyShown.length
@@ -245,7 +283,7 @@ export async function mount(el, ctx) {
       marginBottom: MARGIN_B,
       style: { fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: '11px', color: COLORS.muted, background: 'transparent', overflow: 'visible' },
       x: { domain: [DAY(y0), DAY(y1 + 1)], ticks, tickFormat: '%Y', label: null },
-      y: { label: `${v.short} (${unit})`, labelAnchor: 'top', nice: true, zero: !isWater },
+      y: { label: `${v.short} (${unit})`, labelAnchor: 'top', nice: true, zero: !isWater, tickFormat: fmtCompactTick },
       marks,
     });
 

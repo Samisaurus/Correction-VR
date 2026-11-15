@@ -477,8 +477,8 @@ export async function mount(el, ctx) {
     fireBarWrap.append(makeFireDotsSvg(basin), fireBar);
     fireCard.appendChild(fireBarWrap);
     fireCard.insertAdjacentHTML('beforeend',
-      '<div class="leg-ticks"><span>&lt;0.5 smolder</span><span>2+ active</span><span>8+ megafire</span></div>'
-      + `<p class="leg-desc">Translucent ${basin ? '0.1°' : '0.5°'} clusters sort intense red cores on top.</p>`);
+      '<div class="leg-ticks"><span>&lt;0.05 low</span><span>0.6+ active</span><span>6+ extreme</span></div>'
+      + `<p class="leg-desc">Translucent ${basin ? '0.05°' : '0.2°'} clusters sort intense red cores on top.</p>`);
 
     // 2. River Runoff Exposure
     const riverCard = document.createElement('div');
@@ -536,7 +536,7 @@ export async function mount(el, ctx) {
       return fires.summary.peakDensity5km2;
     }
     if (!fires || !Array.isArray(fires.features) || !fires.features.length) return 0;
-    const deg = isBasin ? 0.1 : 0.5;
+    const deg = (fires && fires.gridDeg) || (isBasin ? 0.1 : 0.5);
     let peak = 0;
     for (let i = 0; i < fires.features.length; i += 1) {
       const f = fires.features[i];
@@ -546,7 +546,7 @@ export async function mount(el, ctx) {
       const dens = area > 0 ? (Number(f.properties && f.properties.count) || 0) / (area / 5) : 0;
       if (dens > peak) peak = dens;
     }
-    return Number(peak.toFixed(1));
+    return Number(peak.toFixed(2));
   }
 
   function renderTelemetry(state, scope, fires, loading = false) {
@@ -565,29 +565,29 @@ export async function mount(el, ctx) {
     const summary = scope ? scope.summary : null;
     const yrRow = summary && summary.byYear ? summary.byYear.get(yr) : null;
     const fs = fires && fires.summary ? fires.summary : null;
-    const mappedDetections = fs && fs.detections ? fs.detections : (yrRow ? (yrRow.modisTotal || yrRow.allTotal) : null);
-    const totalFrp = fs && fs.totalFrpMw ? fs.totalFrpMw : null;
+    const mappedDetections = (fs && fs.detections) || (yrRow && (yrRow.detections || yrRow.modisTotal || yrRow.allTotal)) || null;
+    const totalFrp = (fs && fs.totalFrpMw) || (yrRow && yrRow.totalFrpMw) || null;
     const peakDensity = computePeakDensity(fires, basin);
     const isMajorEvent = meta && Array.isArray(meta.eventYears) && meta.eventYears.includes(yr);
     const hasSpatialFires = !!(fires && Array.isArray(fires.features) && fires.features.length > 0);
     const medTotal = summary ? summary.medianTotal : null;
-    const natTotal = yrRow ? yrRow.allTotal : null;
+    const comparableTotal = yrRow ? (yrRow.modisTotal || yrRow.detections || yrRow.allTotal) : mappedDetections;
 
     let statusClass = 'is-baseline';
     let statusLabel = 'Baseline';
-    if (loading) {
+    if (loading && !yrRow) {
       statusClass = 'is-loading';
       statusLabel = 'Loading CSV';
-    } else if (!hasSpatialFires && !natTotal) {
+    } else if (!hasSpatialFires && !comparableTotal) {
       statusClass = '';
       statusLabel = 'Awaiting CSV';
-    } else if (peakDensity >= 4.25 || (summary && summary.p90Total && natTotal >= summary.p90Total) || isMajorEvent) {
+    } else if (peakDensity >= 2.2 || (summary && summary.p90Total && comparableTotal >= summary.p90Total) || isMajorEvent) {
       statusClass = 'is-extreme';
       statusLabel = 'Critical Surge';
-    } else if (peakDensity >= 1.5 || (summary && summary.p75Total && natTotal >= summary.p75Total)) {
+    } else if (peakDensity >= 0.65 || (summary && summary.p75Total && comparableTotal >= summary.p75Total)) {
       statusClass = 'is-elevated';
       statusLabel = 'High Stress';
-    } else if (hasSpatialFires || natTotal) {
+    } else if (hasSpatialFires || comparableTotal) {
       statusClass = 'is-moderate';
       statusLabel = 'Active Season';
     }
@@ -595,16 +595,19 @@ export async function mount(el, ctx) {
     badgeText.textContent = statusLabel;
 
     let detSub = fs && fs.sensor ? `${fs.sensor} detections` : 'mapped points';
-    if (natTotal && medTotal && medTotal > 0) {
-      const pct = Math.round(((natTotal - medTotal) / medTotal) * 100);
+    if (comparableTotal && medTotal && medTotal > 0) {
+      const pct = Math.round(((comparableTotal - medTotal) / medTotal) * 100);
       detSub = `${pct >= 0 ? '+' : ''}${pct}% vs median`;
     }
     const detVal = mappedDetections ? fmtCompact(mappedDetections) : '—';
     const frpVal = totalFrp ? `${fmtCompact(totalFrp)} MW` : '—';
-    const frpSub = fs && fs.maxFrpMw ? `Peak cell ${fmtCompact(fs.maxFrpMw)} MW` : 'radiative heat';
-    const peakVal = peakDensity > 0 ? `${peakDensity.toFixed(1)} / 5km²` : '—';
-    const peakSub = fs && fs.topState
-      ? `Top: ${fs.topState.name}`
+    const maxFrp = (fs && fs.maxFrpMw) || (yrRow && yrRow.maxFrpMw) || null;
+    const frpSub = maxFrp ? `Peak ${fmtCompact(maxFrp)} MW` : 'radiative heat';
+    const peakVal = peakDensity > 0 ? `${peakDensity.toFixed(2)} / 5km²` : '—';
+    const topStateName = (fs && fs.topState && fs.topState.name)
+      || (yrRow && yrRow.topStates && yrRow.topStates[0] && yrRow.topStates[0].name);
+    const peakSub = topStateName
+      ? `Top: ${topStateName}`
       : (fs && fs.activeCells ? `${fs.activeCells} hotspots` : 'hotspot density');
 
     const rSum = lastRiverSummary && lastRiverSummary.year === yr ? lastRiverSummary.summary : null;
@@ -618,29 +621,37 @@ export async function mount(el, ctx) {
     kpis.innerHTML = '';
     kpis.append(
       makeKpi('Detections', detVal, detSub, statusClass === 'is-extreme' ? 'is-hot' : ''),
-      makeKpi('Fire Power', frpVal, frpSub, totalFrp > 2_000_000 ? 'is-warn' : ''),
-      makeKpi('Peak Density', peakVal, peakSub, peakDensity >= 4.25 ? 'is-hot' : peakDensity >= 2 ? 'is-warn' : ''),
+      makeKpi('Fire Power', frpVal, frpSub, totalFrp > 2_500_000 ? 'is-warn' : ''),
+      makeKpi('Peak Density', peakVal, peakSub, peakDensity >= 2.2 ? 'is-hot' : peakDensity >= 0.65 ? 'is-warn' : ''),
       makeKpi('River Risk', riverVal, riverSub, rSum && rSum.highRiskRivers > 0 ? 'is-purple' : ''),
     );
+
+    const outageDates = summary && summary.viirsOutageByYear && summary.viirsOutageByYear[yr];
+    const outageNote = outageDates && outageDates.length ? ` · ${outageDates.length} VIIRS outage day${outageDates.length > 1 ? 's' : ''}` : '';
+    const topForestName = (fs && fs.topForest && fs.topForest.name)
+      || (yrRow && yrRow.topForests && yrRow.topForests[0] && yrRow.topForests[0].name);
 
     if (loading) {
       brief.className = 'leg-brief is-muted';
       brief.textContent = `Streaming ${yr} fire detections for ${meta ? meta.shortName : state.countryId}…`;
-    } else if (!hasSpatialFires && !natTotal) {
+    } else if (!hasSpatialFires && !comparableTotal) {
       brief.className = 'leg-brief is-muted';
       brief.innerHTML = `No fire CSV rows loaded for <strong>${meta ? meta.shortName : state.countryId}</strong> yet. Add CSVs in <code>data/${state.countryId}/</code>.`;
-    } else if (fs && fs.topForest && statusClass === 'is-extreme') {
+    } else if (yrRow && yrRow.viirsTotal > 0 && mappedDetections) {
       brief.className = 'leg-brief';
-      brief.innerHTML = `<strong>Alert:</strong> Peak pressure centered around <strong>${fs.topForest.name}</strong>${fs.topState ? ` (${fs.topState.name})` : ''}.`;
-    } else if (natTotal && mappedDetections && natTotal > mappedDetections * 2) {
+      brief.innerHTML = `<strong>${fmtCompact(mappedDetections)}</strong> MODIS mapped + <strong>${fmtCompact(yrRow.viirsTotal)}</strong> VIIRS (${fmtCompact(yrRow.allTotal)} total)${topForestName ? ` · Top: <strong>${topForestName}</strong>` : ''}${outageNote}.`;
+    } else if (topForestName && statusClass === 'is-extreme') {
       brief.className = 'leg-brief';
-      brief.innerHTML = `<strong>${fmtCompact(natTotal)}</strong> combined MODIS+VIIRS fires nationwide; <strong>${fmtCompact(mappedDetections)}</strong> ${fs && fs.sensor ? fs.sensor : ''} hotspots mapped.`;
+      brief.innerHTML = `<strong>Alert:</strong> Peak pressure in <strong>${topForestName}</strong>${topStateName && !topForestName.includes(topStateName) ? ` (${topStateName})` : ''}${outageNote}.`;
     } else if (rSum && rSum.highRiskRivers > 0 && rSum.worstRiverName) {
       brief.className = 'leg-brief';
       brief.innerHTML = `<strong>Runoff alert:</strong> <strong>${rSum.worstRiverName}</strong> shows high burn-zone ash exposure (${rSum.maxExposurePct}%).`;
+    } else if (topForestName) {
+      brief.className = 'leg-brief is-muted';
+      brief.innerHTML = `Peak activity: <strong>${topForestName}</strong>${outageNote}.`;
     } else {
       brief.className = 'leg-brief is-muted';
-      brief.textContent = `Compare fire clusters, smoke drift & downstream river color across ${theme ? 'years' : 'time'}.`;
+      brief.textContent = `Compare fire clusters, smoke drift & downstream river color across years.`;
     }
   }
 

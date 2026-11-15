@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { prepareRivers, scoreRiversForYear } from './water.js';
 import { enrichAndSortFires } from './fires.js';
-import { annualSeries, annualValue, annualMedian, monthlySeries, parseCsv } from '../data.js';
+import { annualSeries, annualValue, annualMedian, monthlySeries, parseCsv, computeBeforeAfterStats } from '../data.js';
 
 test('scoreRiversForYear keeps low-exposure rivers blue (0) and high-exposure rivers purple (near 1)', () => {
   const rivers = {
@@ -180,3 +180,75 @@ test('buildDataManifest discovers copy-pasted csv_by_year folders, classifies su
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+test('buildScopeIndex indexes full USA 2002-2026 MODIS fire detections, all 193 forests, VIIRS outage days, and Yukon basin', async () => {
+  const path = await import('node:path');
+  const { buildScopeIndex } = await import('../../vite.config.js');
+  const idx = buildScopeIndex(path.resolve('data'));
+
+  assert.ok(idx.scopes.usa, 'usa scope must be indexed');
+  const usa = idx.scopes.usa;
+  assert.equal(usa.series.fire_count.annual.length, 25, 'USA must cover all 25 years 2002-2026');
+  assert.equal(usa.series.fire_count.annual[0][0], 2002);
+  assert.equal(usa.series.fire_count.annual[24][0], 2026);
+  assert.equal(usa.series.fire_frp.annual.length, 25);
+  assert.ok(usa.series.fire_frp.monthly.length > 200, 'monthly fire_frp series must span 2002-2026');
+
+  assert.equal(usa.summaryByYear.length, 25);
+  assert.equal(usa.allForests.length, 193, 'all 193 forest rows from us_summary_by_forest.csv must be preserved');
+  assert.ok(usa.allForests.some((f) => f.name.startsWith('Other forest land')), 'Other forest land must not be omitted');
+  assert.equal(usa.viirsOutageDates.length, 51, 'all 51 VIIRS outage dates must be indexed');
+  assert.ok(usa.forestYearsByYear[2002] && usa.forestYearsByYear[2002].length > 0);
+  assert.ok(usa.forestYearsByYear[2020] && usa.forestYearsByYear[2020].length > 0);
+
+  // Confirm 2005, 2020, 2021 year totals match us_summary_by_year.csv MODIS_total exactly
+  assert.equal(usa.years[2005].detections, 29806);
+  assert.equal(usa.years[2020].detections, 40908);
+  assert.equal(usa.years[2021].detections, 48801);
+  assert.ok(usa.years[2020].totalFrpMw > 7000000);
+
+  assert.ok(idx.scopes['usa/yukon'], 'usa/yukon basin scope must be indexed');
+  const yukon = idx.scopes['usa/yukon'];
+  assert.ok(yukon.years[2004] && yukon.years[2004].detections > 500, 'Yukon 2004 pre-2012 fires must be indexed');
+  assert.ok(yukon.years[2005] && yukon.years[2005].detections > 500, 'Yukon 2005 pre-2012 fires must be indexed');
+});
+
+test('computeBeforeAfterStats computes before/after Welch t-test and Mann-Whitney U for USA fire series', () => {
+  const series = {
+    variables: {
+      fire_frp: {
+        annual: [[2002, 100], [2003, 110], [2004, 105], [2005, 500]],
+        monthly: [
+          ['2002-05', 10], ['2002-06', 20], ['2002-07', 30], ['2002-08', 25], ['2002-09', 15],
+          ['2003-05', 12], ['2003-06', 22], ['2003-07', 32], ['2003-08', 24], ['2003-09', 20],
+          ['2004-05', 11], ['2004-06', 21], ['2004-07', 29], ['2004-08', 26], ['2004-09', 18],
+          ['2005-05', 80], ['2005-06', 110], ['2005-07', 140], ['2005-08', 100], ['2005-09', 70],
+        ],
+      },
+      fire_count: {
+        annual: [[2002, 50], [2003, 55], [2004, 52], [2005, 220]],
+        monthly: [
+          ['2002-05', 5], ['2002-06', 10], ['2002-07', 15], ['2002-08', 12], ['2002-09', 8],
+          ['2003-05', 6], ['2003-06', 11], ['2003-07', 16], ['2003-08', 13], ['2003-09', 9],
+          ['2004-05', 5], ['2004-06', 10], ['2004-07', 15], ['2004-08', 12], ['2004-09', 10],
+          ['2005-05', 35], ['2005-06', 45], ['2005-07', 65], ['2005-08', 45], ['2005-09', 30],
+        ],
+      },
+    },
+  };
+  const stats = computeBeforeAfterStats(series, {
+    years: [2002, 2026],
+    eventYears: [2005],
+  });
+  assert.ok(stats && Array.isArray(stats.beforeAfter));
+  assert.equal(stats.beforeAfter.length, 2);
+  const frpStat = stats.beforeAfter.find((r) => r.variable === 'fire_frp' && r.event === 2005);
+  assert.ok(frpStat);
+  assert.deepEqual(frpStat.before_years, [2002, 2003, 2004]);
+  assert.deepEqual(frpStat.after_years, [2005]);
+  assert.ok(frpStat.mean_after > frpStat.mean_before);
+  assert.ok(frpStat.p < 0.01, `expected significant p < 0.01, got ${frpStat.p}`);
+  assert.ok(frpStat.mannwhitney_p < 0.01);
+  assert.ok(frpStat.cohens_d > 2);
+});
+

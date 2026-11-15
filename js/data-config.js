@@ -41,12 +41,16 @@ export const DATA_CONFIG = {
     waterBody: ['water_body', 'waterbody', 'water_body_id', 'wb'],
     state: ['state', 'province', 'region_name', 'admin1'],
     forest: ['forest_name', 'forest', 'unit_name'],
+    frpClass: ['frp_class'],
+    inNationalForest: ['in_national_forest'],
+    satellite: ['satellite'],
+    dayNight: ['day_night'],
   },
 
   // Grid cell size (degrees) used to aggregate large point-level CSVs (like NASA FIRMS 20–60 MB files)
   gridDeg: {
-    countryFires: 0.5,
-    basinFires: 0.1,
+    countryFires: 0.2,
+    basinFires: 0.05,
     countryAir: 2.0,
     basinAir: 0.5,
   },

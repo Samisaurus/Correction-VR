@@ -79,22 +79,22 @@ export function enrichAndSortFires(fires, { isBasin = false, gridDeg = null } = 
 
 const DENSITY_COLOR = [
   'interpolate', ['linear'], ['coalesce', ['get', 'density_5km2'], 0],
-  0.25, '#FACC15',
-  0.90, '#F59E0B',
-  2.00, '#EA580C',
-  4.25, '#DC2626',
-  8.00, '#991B1B',
+  0.03, '#FACC15',
+  0.18, '#F59E0B',
+  0.65, '#EA580C',
+  2.20, '#DC2626',
+  6.00, '#991B1B',
 ];
 
 function radius(k) {
   const s = ['sqrt', ['max', 1, ['get', 'count']]];
-  const at = (f) => ['+', 1, ['*', f * k, s]];
-  return ['interpolate', ['linear'], ['zoom'], 1, at(0.22), 3, at(0.4), 6, at(0.75), 9, at(1.3)];
+  const at = (f) => ['+', 1.4, ['*', f * k, s]];
+  return ['interpolate', ['linear'], ['zoom'], 1, at(0.24), 3, at(0.42), 6, at(0.75), 9, at(1.25)];
 }
 
 export function addLayer(map, ctx) {
   const { fmt } = ctx.theme;
-  map.addSource('fires-src', { type: 'geojson', data: EMPTY, attribution: 'Fires: NASA FIRMS VIIRS' });
+  map.addSource('fires-src', { type: 'geojson', data: EMPTY, attribution: 'Fires: NASA FIRMS MODIS/VIIRS' });
 
   map.addLayer({
     id: 'fires-glow',
@@ -106,7 +106,7 @@ export function addLayer(map, ctx) {
     paint: {
       'circle-color': DENSITY_COLOR,
       'circle-blur': 1.15,
-      'circle-opacity': ['interpolate', ['linear'], ['coalesce', ['get', 'density_5km2'], 0], 0.2, 0.08, 5.0, 0.17],
+      'circle-opacity': ['interpolate', ['linear'], ['coalesce', ['get', 'density_5km2'], 0], 0.02, 0.1, 0.5, 0.16, 4.0, 0.24],
       'circle-radius': radius(2.1),
       'circle-opacity-transition': { duration: 1050, delay: 0 },
       'circle-radius-transition': { duration: 1050, delay: 0 },
@@ -123,7 +123,7 @@ export function addLayer(map, ctx) {
     paint: {
       'circle-color': DENSITY_COLOR,
       'circle-radius': radius(0.98),
-      'circle-opacity': ['interpolate', ['linear'], ['coalesce', ['get', 'density_5km2'], 0], 0.2, 0.28, 2.0, 0.45, 6.0, 0.64],
+      'circle-opacity': ['interpolate', ['linear'], ['coalesce', ['get', 'density_5km2'], 0], 0.02, 0.42, 0.5, 0.6, 4.0, 0.8],
       'circle-stroke-width': 0,
       'circle-opacity-transition': { duration: 360, delay: 0 },
       'circle-radius-transition': { duration: 1050, delay: 0 },
@@ -140,8 +140,8 @@ export function addLayer(map, ctx) {
       if (document.hidden || !map.getLayer('fires-glow')) return;
       pulseHigh = !pulseHigh;
       map.setPaintProperty('fires-glow', 'circle-opacity', pulseHigh
-        ? ['interpolate', ['linear'], ['coalesce', ['get', 'density_5km2'], 0], 0.2, 0.11, 5.0, 0.23]
-        : ['interpolate', ['linear'], ['coalesce', ['get', 'density_5km2'], 0], 0.2, 0.07, 5.0, 0.16]);
+        ? ['interpolate', ['linear'], ['coalesce', ['get', 'density_5km2'], 0], 0.02, 0.13, 0.5, 0.2, 4.0, 0.28]
+        : ['interpolate', ['linear'], ['coalesce', ['get', 'density_5km2'], 0], 0.02, 0.09, 0.5, 0.15, 4.0, 0.21]);
       map.setPaintProperty('fires-glow', 'circle-radius', radius(pulseHigh ? 2.35 : 2.05));
       map.setPaintProperty('fires-dot', 'circle-radius', radius(pulseHigh ? 1.03 : 0.96));
     }, 1150);
@@ -153,10 +153,14 @@ export function addLayer(map, ctx) {
     const f = e.features && e.features[0];
     if (!f) return;
     const p = f.properties;
-    const dens = Number(p.density_5km2 || 0).toFixed(1);
+    const dens = Number(p.density_5km2 || 0).toFixed(2);
+    const locParts = [p.forest, p.state].filter(Boolean);
+    const locLine = locParts.length ? `<br>${locParts.join(' · ')}` : '';
+    const highLine = Number(p.high_frp) > 0 ? ` (${fmt(p.high_frp, 'fire_count')} high-FRP)` : '';
+    const peakLine = Number(p.max_frp) > 0 ? ` · peak ${fmt(p.max_frp, 'fire_frp')} MW` : '';
     map.getCanvas().style.cursor = 'pointer';
     popup.setLngLat(e.lngLat)
-      .setHTML(`<strong>${dens} / 5 km²</strong> · ${fmt(p.count, 'fire_count')} detections · ${fmt(p.frp_sum, 'fire_frp')} MW · ${p.first}–${p.last}`)
+      .setHTML(`<strong>${dens} / 5 km²</strong> · ${fmt(p.count, 'fire_count')} detections${highLine}<br>${fmt(p.frp_sum, 'fire_frp')} MW sum${peakLine} · ${p.first}–${p.last}${locLine}`)
       .addTo(map);
   });
   map.on('mousemove', 'fires-dot', (e) => popup.setLngLat(e.lngLat));
@@ -171,10 +175,10 @@ export function addLayer(map, ctx) {
     update(state, payload) {
       const fires = payload && payload.fires && Array.isArray(payload.fires.features) ? payload.fires : null;
       const isBasin = !!(payload && payload.scope && payload.scope.meta && payload.scope.meta.kind === 'basin');
-      const key = fires ? `${fires.scope || ''}:${fires.year || state.year}:${isBasin ? 'b' : 'c'}` : 'empty';
+      const key = fires ? `${fires.scope || ''}:${fires.year || state.year}:${isBasin ? 'b' : 'c'}:${fires.gridDeg || ''}` : 'empty';
       if (key !== lastKey) {
         lastKey = key;
-        const sorted = fires ? enrichAndSortFires(fires, { isBasin }) : EMPTY;
+        const sorted = fires ? enrichAndSortFires(fires, { isBasin, gridDeg: fires.gridDeg || null }) : EMPTY;
         map.getSource('fires-src').setData(sorted);
       }
       popup.remove();

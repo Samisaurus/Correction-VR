@@ -29,7 +29,7 @@ const STYLE = `
 .f2-cap { font-size: 12.5px; font-style: italic; color: var(--c-muted); margin: 4px 0 0; }
 .f2-link { color: var(--c-link); font-weight: 600; }
 `;
-const ORDER = ['kd490', 'aod', 'chlor_a'];
+const ORDER = ['kd490', 'aod', 'chlor_a', 'fire_frp', 'fire_count'];
 
 function injectStyle() {
   if (document.querySelector('style[data-module="f2"]')) return;
@@ -163,11 +163,16 @@ export async function mount(el, ctx) {
       { x1: 1.2, x2: 1.8, y: entry.mean_after, side: 'after' },
     ];
     const color = (d) => (d.side === 'after' ? v.color : COLORS.muted);
+    const fmtCompactTick = (val) => {
+      if (Math.abs(val) >= 1_000_000) return `${(val / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+      if (Math.abs(val) >= 10_000) return `${Math.round(val / 1_000)}k`;
+      return String(val);
+    };
     const svg = Plot.plot({
-      width, height: 248, marginLeft: 52, marginRight: 20, marginTop: 30, marginBottom: 28,
+      width, height: 248, marginLeft: 56, marginRight: 20, marginTop: 30, marginBottom: 28,
       style: { fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: '11px', color: COLORS.muted, background: 'transparent', overflow: 'visible' },
       x: { domain: [0, 2], ticks: [0.5, 1.5], tickFormat: (d) => (d < 1 ? beforeLabel : afterLabel), label: null },
-      y: { label: `${v.short} (${unit})`, labelAnchor: 'top', nice: true, zero: true },
+      y: { label: `${v.short} (${unit})`, labelAnchor: 'top', nice: true, zero: true, tickFormat: fmtCompactTick },
       marks: [
         Plot.gridY({ stroke: COLORS.rule, strokeOpacity: 0.5 }),
         Plot.rectY(bars, { x1: 'x1', x2: 'x2', y: 'y', fill: color, fillOpacity: 0.18, stroke: color, strokeWidth: 1.5 }),

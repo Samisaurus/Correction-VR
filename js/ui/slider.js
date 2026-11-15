@@ -64,7 +64,13 @@ const STYLE = `
   color: var(--c-muted); white-space: nowrap; transition: color 160ms var(--ease-out), font-weight 160ms var(--ease-out);
 }
 .sld-label.is-selected { color: var(--c-ink); font-weight: 700; }
-@media (max-width: 640px) { .sld-label:nth-child(even) { display: none; } .sld-year { font-size: 18px; } .sld-root { gap: 10px; } }
+@media (max-width: 1080px) { .sld-label:nth-child(even) { display: none; } }
+@media (max-width: 640px) {
+  .sld-year { font-size: 18px; }
+  .sld-root { gap: 10px; }
+  .sld-label:nth-child(n) { display: none; }
+  .sld-label:nth-child(6n+1) { display: block; }
+}
 `;
 
 const PLAY_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9-5.5z"/></svg>';

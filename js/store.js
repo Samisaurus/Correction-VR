@@ -2,9 +2,9 @@
 // Purpose: observable application state store { countryId, view, year, focus, playing }.
 
 export const INITIAL_STATE = Object.freeze({
-  countryId: 'canada',
+  countryId: 'usa',
   view: 'country',
-  year: 2023,
+  year: 2020,
   focus: 'fire_frp',
   playing: false,
 });
