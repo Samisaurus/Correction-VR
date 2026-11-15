@@ -994,6 +994,7 @@ export async function getScope(state) {
         series: mergedSeries,
         stats,
         summary,
+        emissions: (preIndexed && preIndexed.emissions) || null,
         hasFireCsvs: fireEntries.length > 0,
       };
     })());

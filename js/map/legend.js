@@ -162,12 +162,158 @@ const STYLE = `
 .leg-brief.is-muted { color: var(--c-muted); }
 
 .leg-layers {
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   gap: 9px;
   padding: 11px 14px;
 }
+.leg-context {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px 11px;
+  border-top: 1px solid var(--c-edge);
+  background: linear-gradient(180deg, rgba(246, 248, 250, 0.45), rgba(246, 248, 250, 0.85));
+}
+.leg-ctx-block {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.leg-ctx-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+}
+.leg-ctx-title {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--c-ink);
+}
+.leg-ctx-meta {
+  font-family: var(--f-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+  color: var(--c-muted);
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+.leg-em-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+}
+.leg-em-cell {
+  background: var(--c-paper);
+  border: 1px solid var(--c-edge);
+  border-radius: 4px;
+  padding: 4px 6px;
+  min-width: 0;
+}
+.leg-em-k {
+  display: block;
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--c-muted);
+}
+.leg-em-v {
+  display: block;
+  font-family: var(--f-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--c-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.leg-delta-track {
+  position: relative;
+  height: 5px;
+  border-radius: 3px;
+  background: #E2E8F0;
+  overflow: hidden;
+}
+.leg-delta-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 220ms var(--ease-out);
+}
+.leg-reg-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.leg-reg-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 8px;
+  align-items: center;
+}
+.leg-reg-name {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--c-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.leg-reg-val {
+  font-family: var(--f-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--c-muted);
+}
+.leg-reg-bar {
+  grid-column: 1 / -1;
+  height: 3.5px;
+  border-radius: 2px;
+  background: #E2E8F0;
+  overflow: hidden;
+}
+.leg-reg-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: #D55E00;
+  transition: width 220ms var(--ease-out);
+}
+.leg-split-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.leg-split-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.leg-split-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10.5px;
+  color: var(--c-muted);
+  font-family: var(--f-mono);
+  font-variant-numeric: tabular-nums;
+}
+.leg-split-track {
+  display: flex;
+  height: 5px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: #E2E8F0;
+}
+.leg-split-a { background: #2B5FC7; transition: width 220ms var(--ease-out); }
+.leg-split-b { background: #94A3B8; transition: width 220ms var(--ease-out); }
+.leg-split-a--warm { background: #D55E00; }
+.leg-split-b--cool { background: #475569; }
 .leg-card {
   display: flex;
   flex-direction: column;
@@ -318,6 +464,11 @@ const STYLE = `
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 10px 14px;
   }
+  .leg-context {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px 16px;
+  }
   .leg-card {
     padding-bottom: 0;
     border-bottom: 0;
@@ -339,6 +490,10 @@ const STYLE = `
   }
   .leg-layers {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .leg-context {
+    grid-template-columns: 1fr;
+    gap: 10px;
   }
   .leg-card:nth-child(even) {
     padding-right: 0;
@@ -433,6 +588,9 @@ export async function mount(el, ctx) {
   const layers = document.createElement('div');
   layers.className = 'leg-layers';
 
+  const contextBox = document.createElement('div');
+  contextBox.className = 'leg-context';
+
   const foot = document.createElement('div');
   foot.className = 'leg-foot';
   const cRow = document.createElement('div');
@@ -454,7 +612,7 @@ export async function mount(el, ctx) {
     }
   }
   foot.appendChild(cRow);
-  root.append(head, telemetry, layers, foot);
+  root.append(head, telemetry, layers, contextBox, foot);
   el.appendChild(root);
 
   let token = 0;
@@ -653,6 +811,177 @@ export async function mount(el, ctx) {
       brief.className = 'leg-brief is-muted';
       brief.textContent = `Compare fire clusters, smoke drift & downstream river color across years.`;
     }
+
+    renderContext(state, scope, yr, yrRow, mappedDetections, totalFrp);
+  }
+
+  function fmtTonnes(t, unit = 'auto') {
+    if (!Number.isFinite(Number(t))) return '—';
+    const v = Number(t);
+    if (unit === 'Mt' || (unit === 'auto' && v >= 1_000_000)) return `${(v / 1_000_000).toFixed(1)} Mt`;
+    if (unit === 'kt' || (unit === 'auto' && v >= 1_000)) return `${(v / 1_000).toFixed(1)} kt`;
+    return `${v.toFixed(0)} t`;
+  }
+
+  function esc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function renderContext(state, scope, yr, yrRow, mappedDetections, totalFrp) {
+    const emRoot = scope && scope.emissions ? scope.emissions : null;
+    const emYr = emRoot && emRoot.years ? emRoot.years[yr] : null;
+    const ranks = emRoot && emRoot.ranksByYear ? emRoot.ranksByYear[yr] : null;
+    const med = emRoot ? emRoot.medians : null;
+    const yearCount = emRoot ? emRoot.yearCount : 24;
+
+    contextBox.innerHTML = '';
+
+    // 1. Atmospheric Emissions Pulse (GFAS 2003–2026) or Pre-GFAS MODIS Baseline (2002)
+    const emBlock = document.createElement('div');
+    emBlock.className = 'leg-ctx-block';
+    if (emYr && med) {
+      const medCo2 = med.co2 || 1;
+      const pct = Math.round(((emYr.co2 - medCo2) / medCo2) * 100);
+      const rankStr = ranks && ranks.co2 ? `#${ranks.co2}/${yearCount} (${pct >= 0 ? '+' : ''}${pct}%)` : `${pct >= 0 ? '+' : ''}${pct}% vs med`;
+      const ratioPct = Math.max(8, Math.min(100, Math.round((emYr.co2 / Math.max(medCo2 * 2.5, emYr.co2)) * 100)));
+      const barColor = pct >= 40 ? '#B91C1C' : pct >= 0 ? '#D55E00' : '#2A9D8F';
+      emBlock.innerHTML = `
+        <div class="leg-ctx-head">
+          <span class="leg-ctx-title">Air Emissions (${yr}${yr === 2026 ? ' YTD' : ''})</span>
+          <span class="leg-ctx-meta">${esc(rankStr)}</span>
+        </div>
+        <div class="leg-em-strip">
+          <div class="leg-em-cell"><span class="leg-em-k">CO₂</span><span class="leg-em-v">${fmtTonnes(emYr.co2, 'Mt')}</span></div>
+          <div class="leg-em-cell"><span class="leg-em-k">PM₂.₅</span><span class="leg-em-v">${fmtTonnes(emYr.pm25)}</span></div>
+          <div class="leg-em-cell"><span class="leg-em-k">Black C</span><span class="leg-em-v">${fmtTonnes(emYr.bc, 'kt')}</span></div>
+        </div>
+        <div class="leg-delta-track" title="CO₂ emissions relative to 2003–2026 median (${fmtTonnes(medCo2, 'Mt')})">
+          <div class="leg-delta-fill" style="width:${ratioPct}%;background:${barColor}"></div>
+        </div>
+      `;
+    } else {
+      const modisDet = yrRow ? (yrRow.modisTotal || yrRow.detections) : mappedDetections;
+      const avgFrp = modisDet && totalFrp ? (totalFrp / modisDet).toFixed(1) : '—';
+      const highPct = yrRow && modisDet ? Math.round(((yrRow.highFrpCount || 0) / modisDet) * 100) : null;
+      emBlock.innerHTML = `
+        <div class="leg-ctx-head">
+          <span class="leg-ctx-title">Pre-GFAS Baseline (${yr})</span>
+          <span class="leg-ctx-meta">CAMS starts 2003</span>
+        </div>
+        <div class="leg-em-strip">
+          <div class="leg-em-cell"><span class="leg-em-k">MODIS</span><span class="leg-em-v">${modisDet ? fmtCompact(modisDet) : '—'}</span></div>
+          <div class="leg-em-cell"><span class="leg-em-k">Mean FRP</span><span class="leg-em-v">${avgFrp === '—' ? '—' : `${avgFrp} MW`}</span></div>
+          <div class="leg-em-cell"><span class="leg-em-k">High Int.</span><span class="leg-em-v">${highPct !== null ? `${highPct}%` : '—'}</span></div>
+        </div>
+      `;
+    }
+    contextBox.appendChild(emBlock);
+
+    // 2. Top Emitting / Active Regions
+    const regBlock = document.createElement('div');
+    regBlock.className = 'leg-ctx-block';
+    const hasEmRegs = !!(emYr && Array.isArray(emYr.topRegions) && emYr.topRegions.length > 0);
+    const hasStateRows = !!(yrRow && Array.isArray(yrRow.topStates) && yrRow.topStates.length > 0);
+
+    if (hasEmRegs) {
+      const top4 = emYr.topRegions.slice(0, 4);
+      const maxVal = top4[0].co2 || 1;
+      const totCo2 = emYr.co2 || top4.reduce((s, r) => s + r.co2, 0) || 1;
+      regBlock.innerHTML = `
+        <div class="leg-ctx-head">
+          <span class="leg-ctx-title">Top Emitting Regions</span>
+          <span class="leg-ctx-meta">CO₂ (% share)</span>
+        </div>
+        <div class="leg-reg-list">
+          ${top4.map((r) => {
+            const w = Math.max(4, Math.round((r.co2 / maxVal) * 100));
+            const share = Math.round((r.co2 / totCo2) * 100);
+            return `<div class="leg-reg-row">
+              <span class="leg-reg-name">${esc(r.name)}</span>
+              <span class="leg-reg-val">${fmtTonnes(r.co2, 'Mt')} · ${share}%</span>
+              <div class="leg-reg-bar"><div class="leg-reg-fill" style="width:${w}%"></div></div>
+            </div>`;
+          }).join('')}
+        </div>
+      `;
+    } else if (hasStateRows) {
+      const top4 = yrRow.topStates.slice(0, 4);
+      const maxVal = top4[0].count || 1;
+      regBlock.innerHTML = `
+        <div class="leg-ctx-head">
+          <span class="leg-ctx-title">Top Fire Regions (${yr})</span>
+          <span class="leg-ctx-meta">MODIS det.</span>
+        </div>
+        <div class="leg-reg-list">
+          ${top4.map((r) => {
+            const w = Math.max(4, Math.round((r.count / maxVal) * 100));
+            return `<div class="leg-reg-row">
+              <span class="leg-reg-name">${esc(r.name)}</span>
+              <span class="leg-reg-val">${fmtCompact(r.count)}</span>
+              <div class="leg-reg-bar"><div class="leg-reg-fill" style="width:${w}%"></div></div>
+            </div>`;
+          }).join('')}
+        </div>
+      `;
+    } else {
+      regBlock.innerHTML = `
+        <div class="leg-ctx-head">
+          <span class="leg-ctx-title">Regional Signal (${yr})</span>
+          <span class="leg-ctx-meta">awaiting CSV</span>
+        </div>
+        <p class="leg-desc">Select 2003–2026 to inspect regional CAMS emissions drivers.</p>
+      `;
+    }
+    contextBox.appendChild(regBlock);
+
+    // 3. Burn Regime / Smoke Chemistry Split
+    const splitBlock = document.createElement('div');
+    splitBlock.className = 'leg-ctx-block';
+    const hasDetectSplit = !!(yrRow && (yrRow.inNationalForestCount + yrRow.otherForestCount > 0 || yrRow.dayCount + yrRow.nightCount > 0));
+    if (hasDetectSplit) {
+      const nfTot = (yrRow.inNationalForestCount || 0) + (yrRow.otherForestCount || 0);
+      const nfPct = nfTot > 0 ? Math.round((yrRow.inNationalForestCount / nfTot) * 100) : 0;
+      const dnTot = (yrRow.dayCount || 0) + (yrRow.nightCount || 0);
+      const dayPct = dnTot > 0 ? Math.round((yrRow.dayCount / dnTot) * 100) : 0;
+      splitBlock.innerHTML = `
+        <div class="leg-ctx-head">
+          <span class="leg-ctx-title">Burn Regime Split</span>
+          <span class="leg-ctx-meta">${fmtCompact(yrRow.detections || mappedDetections)} pts</span>
+        </div>
+        <div class="leg-split-rows">
+          ${nfTot > 0 ? `<div class="leg-split-item">
+            <div class="leg-split-labels"><span>Natl Forest ${nfPct}%</span><span>State/Other ${100 - nfPct}%</span></div>
+            <div class="leg-split-track"><div class="leg-split-a" style="width:${nfPct}%"></div><div class="leg-split-b" style="width:${100 - nfPct}%"></div></div>
+          </div>` : ''}
+          ${dnTot > 0 ? `<div class="leg-split-item">
+            <div class="leg-split-labels"><span>Daytime ${dayPct}%</span><span>Night ${100 - dayPct}%</span></div>
+            <div class="leg-split-track"><div class="leg-split-a leg-split-a--warm" style="width:${dayPct}%"></div><div class="leg-split-b leg-split-b--cool" style="width:${100 - dayPct}%"></div></div>
+          </div>` : ''}
+        </div>
+      `;
+    } else if (emYr) {
+      const coKt = (emYr.co || 0) / 1000;
+      const noxKt = (emYr.nox || 0) / 1000;
+      const ch4Kt = (emYr.ch4 || 0) / 1000;
+      const smkTot = coKt + noxKt + ch4Kt || 1;
+      const coPct = Math.round((coKt / smkTot) * 100);
+      splitBlock.innerHTML = `
+        <div class="leg-ctx-head">
+          <span class="leg-ctx-title">Plume Gas Trace</span>
+          <span class="leg-ctx-meta">GFAS mass</span>
+        </div>
+        <div class="leg-split-rows">
+          <div class="leg-split-item">
+            <div class="leg-split-labels"><span>CO ${fmtTonnes(emYr.co)}</span><span>CH₄ ${fmtTonnes(emYr.ch4)}</span></div>
+            <div class="leg-split-track"><div class="leg-split-a leg-split-a--warm" style="width:${coPct}%"></div><div class="leg-split-b" style="width:${100 - coPct}%"></div></div>
+          </div>
+          <div class="leg-split-item">
+            <div class="leg-split-labels"><span>NOx ${fmtTonnes(emYr.nox)}</span><span>SO₂ ${fmtTonnes(emYr.so2)}</span></div>
+          </div>
+        </div>
+      `;
+    }
+    if (splitBlock.innerHTML) contextBox.appendChild(splitBlock);
   }
 
   async function render(state) {

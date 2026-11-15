@@ -59,7 +59,7 @@
 #fig1 { grid-area: fig1; min-height: 278px; }
 #fig2 { grid-area: fig2; min-height: 278px; }
 #infobox { grid-area: infobox; }
-#fig3 { grid-area: fig3; min-height: 260px; display: flex; flex-direction: column; justify-content: center; }
+#fig3 { grid-area: fig3; min-height: 260px; display: flex; flex-direction: column; justify-content: flex-start; }
 
 /* ---- year slider ---------------------------------------------------------------------------------------- */
 

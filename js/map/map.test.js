@@ -252,3 +252,66 @@ test('computeBeforeAfterStats computes before/after Welch t-test and Mann-Whitne
   assert.ok(frpStat.cohens_d > 2);
 });
 
+test('buildScopeIndex indexes 2003-2026 GFAS emissions across USA, Canada, Russia, and basins without misclassifying emissions CSVs into fires[]', async () => {
+  const path = await import('node:path');
+  const { buildDataManifest, buildScopeIndex } = await import('../../vite.config.js');
+  const dataDir = path.resolve('data');
+  const manifest = buildDataManifest(dataDir);
+  const idx = buildScopeIndex(dataDir);
+
+  for (const cid of ['usa', 'canada', 'russia']) {
+    const mScope = manifest.scopes[cid];
+    assert.ok(mScope, `manifest should contain ${cid}`);
+    assert.ok(mScope.emissionsByYear, `${cid} should discover emissionsByYear`);
+    assert.ok(mScope.emissionsByRegionYear, `${cid} should discover emissionsByRegionYear`);
+    assert.ok(mScope.emissionsByForestYear, `${cid} should discover emissionsByForestYear`);
+    assert.equal(
+      mScope.fires.some((f) => f.url.toLowerCase().includes('emission') || f.url.toLowerCase().includes('small_fires')),
+      false,
+      `${cid} fires[] must never ingest emissions or pre2012_small_fires CSVs`,
+    );
+
+    const em = idx.scopes[cid].emissions;
+    assert.ok(em, `${cid} scope must include emissions`);
+    assert.equal(em.yearCount, 24, `${cid} emissions should span all 24 years 2003-2026`);
+    assert.ok(em.medians.co2 > 0 && em.medians.pm25 > 0);
+    assert.ok(em.years[2023].topRegions.length > 0);
+    assert.ok(em.years[2023].topForests.length > 0);
+  }
+
+  assert.equal(idx.scopes.usa.emissions.ranksByYear[2021].co2, 1, 'USA #1 GFAS CO2 year should be 2021');
+  assert.equal(idx.scopes.canada.emissions.ranksByYear[2023].co2, 1, 'Canada #1 GFAS CO2 year should be 2023');
+  assert.equal(idx.scopes.russia.emissions.ranksByYear[2021].co2, 1, 'Russia #1 GFAS CO2 year should be 2021');
+
+  for (const basinId of ['usa/yukon', 'canada/fraser', 'russia/amur']) {
+    if (idx.scopes[basinId]) {
+      assert.ok(idx.scopes[basinId].emissions && idx.scopes[basinId].emissions.yearCount > 0, `${basinId} should include emissions`);
+    }
+  }
+});
+
+test('getTimestampSummary returns unique factual summaries for every year 2002-2026 across all three countries and basins', async () => {
+  const { getTimestampSummary } = await import('../summaries.js');
+  const seenTexts = new Set();
+
+  for (const cid of ['usa', 'canada', 'russia']) {
+    for (let yr = 2002; yr <= 2026; yr += 1) {
+      const s = getTimestampSummary(cid, yr, {
+        meta: { path: cid, name: cid.toUpperCase() },
+        emissions: { yearCount: 24, years: { [yr]: { co2: 100e6 } }, ranksByYear: { [yr]: { co2: 5 } } },
+      });
+      assert.ok(s.kicker.includes(String(yr)), `${cid} ${yr} kicker should include year`);
+      assert.ok(s.text && s.text.length > 60, `${cid} ${yr} summary text must be substantive`);
+      assert.equal(seenTexts.has(s.text), false, `${cid} ${yr} summary text must be unique`);
+      seenTexts.add(s.text);
+    }
+  }
+  assert.equal(seenTexts.size, 75, 'Must have 75 distinct summaries (25 years x 3 countries)');
+
+  for (const bPath of ['usa/yukon', 'canada/fraser', 'russia/amur']) {
+    const bs = getTimestampSummary(bPath, 2021, { meta: { path: bPath, name: bPath } });
+    assert.ok(bs.basinLabel && bs.basinNote, `${bPath} should provide a basin focus note`);
+  }
+});
+
+

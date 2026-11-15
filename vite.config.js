@@ -43,7 +43,7 @@ function detectScope(relPath, fileName) {
 export function buildDataManifest(dataRoot = path.resolve('data')) {
   const scopes = {};
   const ensure = (s) => {
-    if (!scopes[s]) {
+      if (!scopes[s]) {
       scopes[s] = {
         fires: [],
         air: null,
@@ -52,6 +52,11 @@ export function buildDataManifest(dataRoot = path.resolve('data')) {
         summaryByForest: null,
         summaryByForestYear: null,
         viirsOutageDays: null,
+        pre2012SmallFires: null,
+        emissionsByYear: null,
+        emissionsByRegionYear: null,
+        emissionsByForestYear: null,
+        emissionsByYearFiles: [],
       };
     }
     return scopes[s];
@@ -87,6 +92,18 @@ export function buildDataManifest(dataRoot = path.resolve('data')) {
         bucket.summaryByForest = url;
       } else if (lower.includes('outage')) {
         bucket.viirsOutageDays = url;
+      } else if (lower.includes('pre2012_small_fires')) {
+        bucket.pre2012SmallFires = url;
+      } else if (lower.includes('emissions_by_forest_year')) {
+        bucket.emissionsByForestYear = url;
+      } else if (lower.includes('emissions_by_region_year')) {
+        bucket.emissionsByRegionYear = url;
+      } else if (lower.includes('emissions_by_year')) {
+        bucket.emissionsByYear = url;
+      } else if (lower.includes('emissions') || relLower.includes('fire_emissions')) {
+        const yearMatch = ent.name.match(/(?:^|[_-])((?:19|20)\d{2})(?:[_.-]|$)/);
+        const year = yearMatch ? Number(yearMatch[1]) : null;
+        bucket.emissionsByYearFiles.push({ url, year, file: ent.name });
       } else if (lower.includes('summary')) {
         continue;
       } else if (lower === 'air.csv' || /(?:^|\/)air(?:\/|_)/.test(relLower)) {
@@ -475,6 +492,153 @@ export function buildScopeIndex(dataRoot = path.resolve('data')) {
       }
     }
 
+    const SPECIES = ['bc', 'c', 'ch4', 'co2', 'co', 'nmhc', 'nox', 'oc', 'pm25', 'so2', 'tc'];
+    const BASIN_REGION_MATCH = {
+      'usa/yukon': ['Alaska'],
+      'canada/fraser': ['British Columbia'],
+      'russia/amur': ['Amur Oblast', 'Khabarovsk Krai', 'Zabaykalsky Krai'],
+    };
+
+    const emByYear = {};
+    const emByRegionYear = new Map();
+    const emByForestYear = new Map();
+
+    if (entry.emissionsByYear) {
+      const full = resolveFile(dataRoot, entry.emissionsByYear);
+      if (fs.existsSync(full)) {
+        parseCsvSync(full, (cells, idx) => {
+          const iYr = idx.get('year');
+          const yr = iYr !== undefined ? Number(cells[iYr]) : NaN;
+          if (!Number.isInteger(yr)) return;
+          const rec = {};
+          for (const sp of SPECIES) {
+            const colIdx = idx.get(`${sp}_tonnes`);
+            rec[sp] = colIdx !== undefined ? Number((Number(cells[colIdx]) || 0).toFixed(1)) : 0;
+          }
+          emByYear[yr] = rec;
+        });
+      }
+    }
+
+    if (entry.emissionsByRegionYear) {
+      const full = resolveFile(dataRoot, entry.emissionsByRegionYear);
+      if (fs.existsSync(full)) {
+        parseCsvSync(full, (cells, idx) => {
+          const iYr = idx.get('year');
+          const iReg = idx.get('region');
+          const yr = iYr !== undefined ? Number(cells[iYr]) : NaN;
+          const name = iReg !== undefined ? String(cells[iReg] || '').trim() : '';
+          if (!Number.isInteger(yr) || !name) return;
+          const rec = { name };
+          for (const sp of SPECIES) {
+            const colIdx = idx.get(`${sp}_tonnes`);
+            rec[sp] = colIdx !== undefined ? Number((Number(cells[colIdx]) || 0).toFixed(1)) : 0;
+          }
+          if (!emByRegionYear.has(yr)) emByRegionYear.set(yr, []);
+          emByRegionYear.get(yr).push(rec);
+        });
+      }
+    }
+
+    if (entry.emissionsByForestYear) {
+      const full = resolveFile(dataRoot, entry.emissionsByForestYear);
+      if (fs.existsSync(full)) {
+        parseCsvSync(full, (cells, idx) => {
+          const iYr = idx.get('year');
+          const iReg = idx.get('region');
+          const iFor = idx.get('forest_name');
+          const yr = iYr !== undefined ? Number(cells[iYr]) : NaN;
+          const name = iFor !== undefined ? String(cells[iFor] || '').trim() : '';
+          const region = iReg !== undefined ? String(cells[iReg] || '').trim() : '';
+          if (!Number.isInteger(yr) || !name) return;
+          const iCo2 = idx.get('co2_tonnes');
+          const iPm = idx.get('pm25_tonnes');
+          const iBc = idx.get('bc_tonnes');
+          const iCo = idx.get('co_tonnes');
+          const rec = {
+            name,
+            region,
+            co2: iCo2 !== undefined ? Number((Number(cells[iCo2]) || 0).toFixed(1)) : 0,
+            pm25: iPm !== undefined ? Number((Number(cells[iPm]) || 0).toFixed(1)) : 0,
+            bc: iBc !== undefined ? Number((Number(cells[iBc]) || 0).toFixed(1)) : 0,
+            co: iCo !== undefined ? Number((Number(cells[iCo]) || 0).toFixed(1)) : 0,
+          };
+          if (!emByForestYear.has(yr)) emByForestYear.set(yr, []);
+          emByForestYear.get(yr).push(rec);
+        });
+      }
+    }
+
+    const finalizeEmissions = (yrMap, filterRegions = null) => {
+      const years = {};
+      const yrs = Object.keys(yrMap).map(Number).sort((a, b) => a - b);
+      if (!yrs.length && !emByRegionYear.size) return null;
+      const targetYrs = yrs.length ? yrs : Array.from(emByRegionYear.keys()).sort((a, b) => a - b);
+
+      for (const yr of targetYrs) {
+        const rawRegs = (emByRegionYear.get(yr) || [])
+          .filter((r) => !filterRegions || filterRegions.includes(r.name))
+          .slice()
+          .sort((a, b) => b.co2 - a.co2);
+
+        let base = yrMap[yr] ? { ...yrMap[yr] } : null;
+        if (filterRegions) {
+          base = {};
+          for (const sp of SPECIES) {
+            base[sp] = Number(rawRegs.reduce((s, r) => s + (r[sp] || 0), 0).toFixed(1));
+          }
+        } else if (!base && rawRegs.length) {
+          base = {};
+          for (const sp of SPECIES) {
+            base[sp] = Number(rawRegs.reduce((s, r) => s + (r[sp] || 0), 0).toFixed(1));
+          }
+        }
+        if (!base) continue;
+
+        const rawFors = (emByForestYear.get(yr) || [])
+          .filter((f) => !filterRegions || filterRegions.includes(f.region))
+          .slice()
+          .sort((a, b) => b.co2 - a.co2);
+
+        years[yr] = {
+          ...base,
+          topRegions: rawRegs.slice(0, 8).map((r) => ({
+            name: r.name,
+            co2: r.co2,
+            pm25: r.pm25,
+            bc: r.bc,
+            co: r.co,
+          })),
+          topForests: rawFors.slice(0, 8),
+        };
+      }
+
+      const validYrs = Object.keys(years).map(Number).sort((a, b) => a - b);
+      if (!validYrs.length) return null;
+      const medians = {};
+      const ranksByYear = {};
+      for (const yr of validYrs) ranksByYear[yr] = {};
+      for (const sp of SPECIES) {
+        const vals = validYrs.map((y) => years[y][sp] || 0).filter((v) => v > 0).sort((a, b) => a - b);
+        const mid = vals.length >> 1;
+        medians[sp] = vals.length ? (vals.length % 2 ? vals[mid] : Number(((vals[mid - 1] + vals[mid]) / 2).toFixed(1))) : 0;
+        const ranked = validYrs.slice().sort((a, b) => (years[b][sp] || 0) - (years[a][sp] || 0));
+        ranked.forEach((y, i) => {
+          ranksByYear[y][sp] = i + 1;
+        });
+      }
+
+      return {
+        source: 'Copernicus CAMS GFAS via GWIS',
+        yearCount: validYrs.length,
+        years,
+        medians,
+        ranksByYear,
+        filterRegions: filterRegions || null,
+      };
+    };
+
+    const countryEmissions = finalizeEmissions(emByYear, null);
     const finalizedCountry = finalizeAccumulator(countryAcc);
     scopes[scopeKey] = {
       ...finalizedCountry,
@@ -483,9 +647,14 @@ export function buildScopeIndex(dataRoot = path.resolve('data')) {
       forestYearsByYear,
       viirsOutageDates,
       viirsOutageByYear,
+      emissions: countryEmissions,
     };
     if (basinAcc && basinKey) {
-      scopes[basinKey] = finalizeAccumulator(basinAcc);
+      const basinFilter = BASIN_REGION_MATCH[basinKey] || null;
+      scopes[basinKey] = {
+        ...finalizeAccumulator(basinAcc),
+        emissions: basinFilter ? finalizeEmissions({}, basinFilter) : countryEmissions,
+      };
     }
   }
 
