@@ -30,7 +30,7 @@ export const COUNTRY_COLORS = Object.freeze({
 
 /** Variable table. ids are fixed by the contract; digits = decimals shown by fmt(). */
 export const VARS = Object.freeze({
-  fire_count: { label: 'Fire detections (VIIRS)', short: 'Fires', unit: 'detections', group: 'fire', color: COLORS.fire, digits: 0 },
+  fire_count: { label: 'Fire detections', short: 'Fires', unit: 'detections', group: 'fire', color: COLORS.fire, digits: 0 },
   fire_frp: { label: 'Fire radiative power', short: 'Fire power', unit: 'MW (annual sum)', group: 'fire', color: COLORS.fire, digits: 0 },
   aod: { label: 'Aerosol optical depth 550 nm', short: 'AOD', unit: 'unitless', group: 'air', color: COLORS.smoke, digits: 3 },
   pm25: { label: 'Surface PM2.5', short: 'PM2.5', unit: 'µg/m³', group: 'air', color: COLORS.smoke, digits: 1 },

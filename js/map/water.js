@@ -187,7 +187,32 @@ export function scoreRiversForYear({ preparedRivers, fires, air, isBasin = false
     };
   }
 
-  return { type: 'FeatureCollection', features };
+  let moderateCount = 0;
+  let highCount = 0;
+  let maxPollution = 0;
+  let worstRiverName = null;
+  for (let i = 0; i < features.length; i += 1) {
+    const p = features[i].properties;
+    const val = p.pollution || 0;
+    if (val >= 0.3) moderateCount += 1;
+    if (val >= 0.65) highCount += 1;
+    if (val > maxPollution) {
+      maxPollution = val;
+      worstRiverName = p.name || null;
+    }
+  }
+
+  return {
+    type: 'FeatureCollection',
+    features,
+    summary: {
+      totalRivers: features.length,
+      elevatedRivers: moderateCount,
+      highRiskRivers: highCount,
+      maxExposurePct: Math.round(maxPollution * 100),
+      worstRiverName,
+    },
+  };
 }
 
 export function addLayer(map, ctx) {
@@ -325,6 +350,11 @@ export function addLayer(map, ctx) {
         scoredByYear.set(yr, scored);
       }
       map.getSource('water-rivers').setData(scored);
+      if (typeof window !== 'undefined' && typeof CustomEvent !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('ember:rivers-scored', {
+          detail: { scope: scopeKey, year: yr, summary: scored.summary || null },
+        }));
+      }
       popup.remove();
     },
   };

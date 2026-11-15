@@ -44,11 +44,32 @@ function syncFrame(state) {
 }
 
 export async function main() {
+  const regions = await data.getRegions();
+  if (!regions) {
+    console.info('main: data/regions.json could not be loaded; modules will show placeholders');
+  } else {
+    const defScope = await data.getScope(store.get());
+    const defHasData = !!(defScope && (defScope.hasFireCsvs || (defScope.series && Object.keys(defScope.series.variables || {}).length)));
+    if (!defHasData && Array.isArray(regions.countries)) {
+      for (const c of regions.countries) {
+        if (c.id === store.get().countryId) continue;
+        const sc = await data.getScope({ countryId: c.id, view: 'country' });
+        if (sc && (sc.hasFireCsvs || (sc.series && Object.keys(sc.series.variables || {}).length))) {
+          const bestYear = Array.isArray(c.eventYears) && c.eventYears.length
+            ? c.eventYears[c.eventYears.length - 1]
+            : store.get().year;
+          const focus = sc.series && sc.series.variables && sc.series.variables.fire_frp
+            ? 'fire_frp'
+            : (sc.series && sc.series.variables && sc.series.variables.fire_count ? 'fire_count' : 'fire_frp');
+          store.set({ countryId: c.id, year: bestYear, focus });
+          break;
+        }
+      }
+    }
+  }
+
   syncFrame(store.get());
   store.subscribe(syncFrame);
-
-  const regions = await data.getRegions();
-  if (!regions) console.info('main: data/regions.json could not be loaded; modules will show placeholders');
 
   for (const entry of MODULES) {
     await mountModule(entry.id, entry.mod);

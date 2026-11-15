@@ -29,14 +29,26 @@ export function enrichAndSortFires(fires, { isBasin = false, gridDeg = null } = 
   if (perDeg.has(deg)) return perDeg.get(deg);
 
   const features = new Array(fires.features.length);
+  let peakDensity5km2 = 0;
+  let elevatedCells = 0;
+  let extremeCells = 0;
+  let totalCount = 0;
+  let totalFrp = 0;
+
   for (let i = 0; i < fires.features.length; i += 1) {
     const f = fires.features[i];
     const coords = f && f.geometry && f.geometry.coordinates;
     const lat = Array.isArray(coords) ? Number(coords[1]) : 0;
     const props = f.properties || {};
     const count = Math.max(0, Number(props.count) || 0);
+    const frp = Math.max(0, Number(props.frp_sum) || 0);
     const area = cellAreaKm2(lat, deg);
     const density = area > 0 ? Number((count / (area / 5)).toFixed(2)) : 0;
+    totalCount += count;
+    totalFrp += frp;
+    if (density > peakDensity5km2) peakDensity5km2 = density;
+    if (density >= 2.0) elevatedCells += 1;
+    if (density >= 4.25) extremeCells += 1;
     features[i] = {
       type: 'Feature',
       geometry: f.geometry,
@@ -48,7 +60,19 @@ export function enrichAndSortFires(fires, { isBasin = false, gridDeg = null } = 
   }
 
   features.sort((a, b) => a.properties.density_5km2 - b.properties.density_5km2);
-  const out = { type: 'FeatureCollection', features };
+  const out = {
+    type: 'FeatureCollection',
+    features,
+    summary: {
+      ...(fires.summary || {}),
+      activeCells: features.length,
+      peakDensity5km2,
+      elevatedCells,
+      extremeCells,
+      detections: (fires.summary && fires.summary.detections) || Math.round(totalCount),
+      totalFrpMw: (fires.summary && fires.summary.totalFrpMw) || Math.round(totalFrp),
+    },
+  };
   perDeg.set(deg, out);
   return out;
 }
