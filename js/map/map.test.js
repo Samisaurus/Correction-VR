@@ -181,10 +181,18 @@ test('buildDataManifest discovers copy-pasted csv_by_year folders, classifies su
   }
 });
 
+let _cachedIdxPromise = null;
+async function getFullScopeIndex() {
+  if (!_cachedIdxPromise) {
+    const path = await import('node:path');
+    const { buildScopeIndex } = await import('../../vite.config.js');
+    _cachedIdxPromise = Promise.resolve(buildScopeIndex(path.resolve('data')));
+  }
+  return _cachedIdxPromise;
+}
+
 test('buildScopeIndex indexes full USA 2002-2026 MODIS fire detections, all 193 forests, VIIRS outage days, and Yukon basin', async () => {
-  const path = await import('node:path');
-  const { buildScopeIndex } = await import('../../vite.config.js');
-  const idx = buildScopeIndex(path.resolve('data'));
+  const idx = await getFullScopeIndex();
 
   assert.ok(idx.scopes.usa, 'usa scope must be indexed');
   const usa = idx.scopes.usa;
@@ -254,10 +262,10 @@ test('computeBeforeAfterStats computes before/after Welch t-test and Mann-Whitne
 
 test('buildScopeIndex indexes 2003-2026 GFAS emissions across USA, Canada, Russia, and basins without misclassifying emissions CSVs into fires[]', async () => {
   const path = await import('node:path');
-  const { buildDataManifest, buildScopeIndex } = await import('../../vite.config.js');
+  const { buildDataManifest } = await import('../../vite.config.js');
   const dataDir = path.resolve('data');
   const manifest = buildDataManifest(dataDir);
-  const idx = buildScopeIndex(dataDir);
+  const idx = await getFullScopeIndex();
 
   for (const cid of ['usa', 'canada', 'russia']) {
     const mScope = manifest.scopes[cid];
@@ -313,5 +321,60 @@ test('getTimestampSummary returns unique factual summaries for every year 2002-2
     assert.ok(bs.basinLabel && bs.basinNote, `${bPath} should provide a basin focus note`);
   }
 });
+
+test('buildDataManifest discovers Russia MODIS CSVs and compressed VIIRS ZIPs alongside Canada 2002-2014, 2020, 2026 files', async () => {
+  const path = await import('node:path');
+  const { buildDataManifest } = await import('../../vite.config.js');
+  const manifest = buildDataManifest(path.resolve('data'));
+
+  const ru = manifest.scopes.russia;
+  assert.ok(ru, 'russia scope must be present');
+  assert.equal(ru.fires.filter((f) => f.sensor === 'modis').length, 8, 'Russia must discover all 8 MODIS CSVs');
+  const ruViirs = ru.fires.filter((f) => f.sensor === 'viirs');
+  assert.equal(ruViirs.length, 6, 'Russia must discover all 6 zipped VIIRS archives');
+  assert.deepEqual(ruViirs.map((f) => f.year).sort((a, b) => a - b), [2013, 2014, 2016, 2018, 2020, 2024]);
+  for (const zf of ruViirs) {
+    assert.equal(zf.format, 'zip');
+    assert.ok(zf.gridUrl && zf.gridUrl.endsWith(`russia-${zf.year}.json`), `expected pre-grid URL for ${zf.year}`);
+  }
+
+  const ca = manifest.scopes.canada;
+  assert.ok(ca, 'canada scope must be present');
+  assert.deepEqual(
+    ca.fires.filter((f) => f.sensor === 'modis').map((f) => f.year).sort((a, b) => a - b),
+    [2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2026],
+  );
+  assert.deepEqual(ca.fires.filter((f) => f.sensor === 'viirs').map((f) => f.year), [2020]);
+});
+
+test('buildScopeIndex indexes Russia MODIS + zipped VIIRS with region rankings and Canada MODIS + 2020 VIIRS cleanly separated', async () => {
+  const idx = await getFullScopeIndex();
+
+  const ru = idx.scopes.russia;
+  assert.ok(ru, 'russia scope must be indexed');
+  assert.equal(ru.series.fire_count.annual.length, 8, 'Russia fire_count trend must stay pure MODIS (8 years)');
+  assert.equal(ru.series.viirs_count.annual.length, 6, 'Russia viirs_count trend must isolate all 6 VIIRS years');
+  assert.equal(ru.series.fire_frp.annual.length, 14, 'Russia fire_frp must cover all 14 detection years');
+  assert.ok(ru.years[2010] && ru.years[2010].modisTotal > 10000 && ru.years[2010].topStates.length > 0, 'Russia 2010 MODIS + regions');
+  assert.equal(ru.years[2020].viirsTotal, 765116, 'Russia 2020 zipped VIIRS indexed cleanly');
+  assert.equal(ru.years[2020].sensor, 'VIIRS');
+  assert.ok(ru.years[2020].topStates.some((s) => /Sakha|Khabarovsk|Krasnoyarsk|Irkutsk|Amur/i.test(s.name)), 'Russian regions parsed from region column');
+
+  const amur = idx.scopes['russia/amur'];
+  assert.ok(amur && amur.years[2020] && amur.years[2020].detections > 1000, 'russia/amur basin must index zipped VIIRS detections');
+
+  const ca = idx.scopes.canada;
+  assert.ok(ca, 'canada scope must be indexed');
+  assert.equal(ca.series.fire_count.annual.length, 14, 'Canada fire_count must stay pure MODIS (14 years)');
+  assert.equal(ca.series.viirs_count.annual.length, 1, 'Canada viirs_count must isolate 2020 VIIRS');
+  assert.equal(ca.series.fire_frp.annual.length, 15, 'Canada fire_frp must span all 15 detection years');
+  assert.equal(ca.years[2020].sensor, 'VIIRS');
+  assert.equal(ca.years[2020].modisTotal, 0);
+  assert.ok(ca.years[2020].viirsTotal > 20000);
+
+  const fraser = idx.scopes['canada/fraser'];
+  assert.ok(fraser && fraser.years[2014] && fraser.years[2014].detections > 50, 'canada/fraser basin must index 2014 MODIS detections');
+});
+
 
 

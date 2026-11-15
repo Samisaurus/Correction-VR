@@ -263,8 +263,9 @@ export async function mount(el, ctx) {
       current.forestWrap.hidden = false;
       current.searchInput.hidden = fyRows.length <= 3 && !q;
     } else if (yrRow && Array.isArray(yrRow.topForests) && yrRow.topForests.length) {
+      const colLabel = yrRow.sensor || 'Det.';
       detailTitle.textContent = `${yr} Active Forests & Regions`;
-      detailTableHead.innerHTML = '<tr><th>Forest / Area</th><th>State</th><th class="num">MODIS</th><th class="num">FRP MW</th></tr>';
+      detailTableHead.innerHTML = `<tr><th>Forest / Area</th><th>Region</th><th class="num">${colLabel}</th><th class="num">FRP MW</th></tr>`;
       const filtered = q
         ? yrRow.topForests.filter((f) => f.name.toLowerCase().includes(q) || (f.state && f.state.toLowerCase().includes(q)))
         : yrRow.topForests;
@@ -452,52 +453,66 @@ export async function mount(el, ctx) {
     if (!current) return;
     const { scope, rows, subYear } = current;
     const yr = Number(state.year);
+    const snapCurrent = current;
+    const myUpdateToken = ++token;
     subYear.textContent = String(yr);
     renderForestBreakdown(scope, yr);
 
-    let fireSummary = null;
-    if (scope && scope.hasFireCsvs) {
-      const fires = await data.getFires(state, yr);
-      fireSummary = fires && fires.summary ? fires.summary : null;
-    }
-    if (!current || Number(store.get().year) !== yr) return;
+    const yrRow = scope && scope.summary && scope.summary.byYear ? scope.summary.byYear.get(yr) : null;
+    const paintRows = (fireSummary = null) => {
+      const hasViirsThisYr = data.annualValue(scope.series, 'viirs_count', yr) !== null
+        || !!(yrRow && yrRow.viirsTotal > 0)
+        || !!(fireSummary && fireSummary.sensor === 'VIIRS');
 
-    for (let i = 0; i < rows.length; i += 1) {
-      const row = rows[i];
-      if (row.spec.link) continue;
-      const { spec, tr, numEl, unitEl, deltaValEl, spark, med } = row;
-      tr.classList.toggle('is-focus', state.focus === spec.id);
-      let value = data.annualValue(scope.series, spec.id, yr, spec.wb);
-      if (value === null && fireSummary) {
-        if (spec.id === 'fire_frp' && fireSummary.totalFrpMw > 0) value = fireSummary.totalFrpMw;
-        else if (spec.id === 'fire_count' && fireSummary.detections > 0) value = fireSummary.detections;
-      }
-      numEl.textContent = theme.fmt(value, spec.id);
-      unitEl.hidden = value === null;
-      deltaValEl.classList.remove('is-surge', 'is-calm');
-      if (value !== null && med !== null && med !== 0) {
-        const pct = ((value - med) / Math.abs(med)) * 100;
-        const sign = pct >= 0 ? '+' : '−';
-        deltaValEl.textContent = `${sign}${Math.abs(pct).toFixed(0)}%`;
-        if (pct >= 20) deltaValEl.classList.add('is-surge');
-        else if (pct <= -15) deltaValEl.classList.add('is-calm');
-      } else if (spec.id === 'viirs_count' && yr < 2012) {
-        deltaValEl.textContent = 'Pre-VIIRS era';
-      } else if (value !== null && spec.id === 'fire_frp' && fireSummary && fireSummary.sensor) {
-        deltaValEl.textContent = `${fireSummary.sensor} live`;
-      } else {
-        deltaValEl.textContent = '—';
-      }
-      if (spark.dot) {
-        const pt = spark.coordsByYear.get(yr);
-        if (pt) {
-          spark.dot.setAttribute('cx', pt[0]);
-          spark.dot.setAttribute('cy', pt[1]);
-          spark.dot.style.display = '';
+      for (let i = 0; i < rows.length; i += 1) {
+        const row = rows[i];
+        if (row.spec.link) continue;
+        const { spec, tr, numEl, unitEl, deltaValEl, spark, med } = row;
+        tr.classList.toggle('is-focus', state.focus === spec.id);
+        let value = data.annualValue(scope.series, spec.id, yr, spec.wb);
+        if (value === null && fireSummary) {
+          if (spec.id === 'fire_frp' && fireSummary.totalFrpMw > 0) value = fireSummary.totalFrpMw;
+          else if (spec.id === 'fire_count' && fireSummary.sensor !== 'VIIRS' && fireSummary.detections > 0) value = fireSummary.detections;
+          else if (spec.id === 'viirs_count' && fireSummary.sensor === 'VIIRS' && fireSummary.detections > 0) value = fireSummary.detections;
+        }
+        numEl.textContent = theme.fmt(value, spec.id);
+        unitEl.hidden = value === null;
+        deltaValEl.classList.remove('is-surge', 'is-calm');
+        if (value !== null && med !== null && med !== 0) {
+          const pct = ((value - med) / Math.abs(med)) * 100;
+          const sign = pct >= 0 ? '+' : '−';
+          deltaValEl.textContent = `${sign}${Math.abs(pct).toFixed(0)}%`;
+          if (pct >= 20) deltaValEl.classList.add('is-surge');
+          else if (pct <= -15) deltaValEl.classList.add('is-calm');
+        } else if (spec.id === 'fire_count' && value === null && hasViirsThisYr) {
+          deltaValEl.textContent = 'VIIRS-only yr';
+        } else if (spec.id === 'viirs_count' && yr < 2012) {
+          deltaValEl.textContent = 'Pre-VIIRS era';
+        } else if (value !== null && spec.id === 'fire_frp' && fireSummary && fireSummary.sensor) {
+          deltaValEl.textContent = `${fireSummary.sensor} live`;
         } else {
-          spark.dot.style.display = 'none';
+          deltaValEl.textContent = '—';
+        }
+        if (spark.dot) {
+          const pt = spark.coordsByYear.get(yr);
+          if (pt) {
+            spark.dot.setAttribute('cx', pt[0]);
+            spark.dot.setAttribute('cy', pt[1]);
+            spark.dot.style.display = '';
+          } else {
+            spark.dot.style.display = 'none';
+          }
         }
       }
+    };
+
+    // Paint all pre-indexed / series metrics immediately with zero blank flash
+    paintRows(null);
+
+    if (scope && scope.hasFireCsvs && !yrRow) {
+      const fires = await data.getFires(state, yr);
+      if (myUpdateToken !== token || current !== snapCurrent || Number(store.get().year) !== yr) return;
+      if (fires && fires.summary) paintRows(fires.summary);
     }
   }
 
@@ -510,7 +525,7 @@ export async function mount(el, ctx) {
       theme.placeholder(el);
       return;
     }
-    render(scope, state);
+    render(scope, store.get());
   }
 
   store.subscribe((state, prev) => {

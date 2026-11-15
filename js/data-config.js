@@ -39,7 +39,7 @@ export const DATA_CONFIG = {
     variable: ['variable', 'var', 'var_id', 'metric'],
     value: ['value', 'val', 'mean', 'v'],
     waterBody: ['water_body', 'waterbody', 'water_body_id', 'wb'],
-    state: ['state', 'province', 'region_name', 'admin1'],
+    state: ['state', 'province', 'region', 'region_name', 'admin1'],
     forest: ['forest_name', 'forest', 'unit_name'],
     frpClass: ['frp_class'],
     inNationalForest: ['in_national_forest'],

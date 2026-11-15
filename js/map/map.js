@@ -283,7 +283,11 @@ export async function mount(el, ctx) {
   function applyView(state, meta, animate) {
     const basin = state.view === 'basin';
     if (!basin) map.setTerrain(null);
-    map.setProjection({ type: basin ? 'mercator' : 'globe' });
+    const targetProj = basin ? 'mercator' : 'globe';
+    const curProj = typeof map.getProjection === 'function' ? map.getProjection() : null;
+    if (!curProj || curProj.type !== targetProj) {
+      map.setProjection({ type: targetProj });
+    }
     if (map.getLayer('map-hillshade')) {
       map.setLayoutProperty('map-hillshade', 'visibility', basin ? 'visible' : 'none');
     }

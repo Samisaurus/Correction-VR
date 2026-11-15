@@ -728,8 +728,15 @@ export async function mount(el, ctx) {
     const peakDensity = computePeakDensity(fires, basin);
     const isMajorEvent = meta && Array.isArray(meta.eventYears) && meta.eventYears.includes(yr);
     const hasSpatialFires = !!(fires && Array.isArray(fires.features) && fires.features.length > 0);
-    const medTotal = summary ? summary.medianTotal : null;
-    const comparableTotal = yrRow ? (yrRow.modisTotal || yrRow.detections || yrRow.allTotal) : mappedDetections;
+    const isViirsOnly = yrRow ? (yrRow.sensor === 'VIIRS' && !(yrRow.modisTotal > 0)) : !!(fs && fs.sensor === 'VIIRS');
+    const medTotal = isViirsOnly ? (summary ? summary.medianViirs : null) : (summary ? summary.medianTotal : null);
+    const p75Total = isViirsOnly ? (summary ? summary.p75Viirs : null) : (summary ? summary.p75Total : null);
+    const p90Total = isViirsOnly ? (summary ? summary.p90Viirs : null) : (summary ? summary.p90Total : null);
+    const comparableTotal = yrRow ? (isViirsOnly ? (yrRow.viirsTotal || yrRow.detections) : (yrRow.modisTotal || yrRow.detections || yrRow.allTotal)) : mappedDetections;
+    const relRatio = (medTotal && medTotal > 0 && comparableTotal) ? (comparableTotal / medTotal) : null;
+    const emYr = scope && scope.emissions && scope.emissions.years ? scope.emissions.years[yr] : null;
+    const emMed = scope && scope.emissions && scope.emissions.medians ? scope.emissions.medians.co2 : null;
+    const emRatio = (emYr && emMed > 0) ? (emYr.co2 / emMed) : null;
 
     let statusClass = 'is-baseline';
     let statusLabel = 'Baseline';
@@ -739,23 +746,37 @@ export async function mount(el, ctx) {
     } else if (!hasSpatialFires && !comparableTotal) {
       statusClass = '';
       statusLabel = 'Awaiting CSV';
-    } else if (peakDensity >= 2.2 || (summary && summary.p90Total && comparableTotal >= summary.p90Total) || isMajorEvent) {
+    } else if (
+      (p90Total && medTotal && p90Total > medTotal && comparableTotal >= p90Total && (emRatio === null || emRatio >= 0.85))
+      || (emRatio !== null && emRatio >= 1.75)
+      || (isMajorEvent && (emRatio === null || emRatio >= 0.85))
+      || (peakDensity >= 4.0 && (relRatio === null || relRatio >= 0.95) && (emRatio === null || emRatio >= 0.95))
+    ) {
       statusClass = 'is-extreme';
       statusLabel = 'Critical Surge';
-    } else if (peakDensity >= 0.65 || (summary && summary.p75Total && comparableTotal >= summary.p75Total)) {
+    } else if (
+      (p75Total && medTotal && p75Total > medTotal && comparableTotal >= p75Total && (emRatio === null || emRatio >= 0.8))
+      || (emRatio !== null && emRatio >= 1.2)
+      || (peakDensity >= 1.5 && (relRatio === null || relRatio >= 0.8) && (emRatio === null || emRatio >= 0.85))
+    ) {
       statusClass = 'is-elevated';
       statusLabel = 'High Stress';
-    } else if (hasSpatialFires || comparableTotal) {
+    } else if (
+      (relRatio !== null && relRatio >= 0.45)
+      || (emRatio !== null && emRatio >= 0.45)
+      || (hasSpatialFires && relRatio === null && emRatio === null)
+    ) {
       statusClass = 'is-moderate';
       statusLabel = 'Active Season';
     }
     badge.className = `leg-badge${statusClass ? ` ${statusClass}` : ''}`;
     badgeText.textContent = statusLabel;
 
-    let detSub = fs && fs.sensor ? `${fs.sensor} detections` : 'mapped points';
-    if (comparableTotal && medTotal && medTotal > 0) {
+    const sensorTag = (fs && fs.sensor) || (yrRow && yrRow.sensor) || null;
+    let detSub = sensorTag ? `${sensorTag} detections` : 'mapped points';
+    if (comparableTotal && medTotal && medTotal > 0 && (!isViirsOnly || comparableTotal !== medTotal)) {
       const pct = Math.round(((comparableTotal - medTotal) / medTotal) * 100);
-      detSub = `${pct >= 0 ? '+' : ''}${pct}% vs median`;
+      detSub = `${sensorTag === 'VIIRS' && isViirsOnly ? 'VIIRS ' : ''}${pct >= 0 ? '+' : ''}${pct}% vs med`;
     }
     const detVal = mappedDetections ? fmtCompact(mappedDetections) : '—';
     const frpVal = totalFrp ? `${fmtCompact(totalFrp)} MW` : '—';
@@ -795,9 +816,12 @@ export async function mount(el, ctx) {
     } else if (!hasSpatialFires && !comparableTotal) {
       brief.className = 'leg-brief is-muted';
       brief.innerHTML = `No fire CSV rows loaded for <strong>${meta ? meta.shortName : state.countryId}</strong> yet. Add CSVs in <code>data/${state.countryId}/</code>.`;
-    } else if (yrRow && yrRow.viirsTotal > 0 && mappedDetections) {
+    } else if (yrRow && yrRow.modisTotal > 0 && yrRow.viirsTotal > 0 && mappedDetections) {
       brief.className = 'leg-brief';
       brief.innerHTML = `<strong>${fmtCompact(mappedDetections)}</strong> MODIS mapped + <strong>${fmtCompact(yrRow.viirsTotal)}</strong> VIIRS (${fmtCompact(yrRow.allTotal)} total)${topForestName ? ` · Top: <strong>${topForestName}</strong>` : ''}${outageNote}.`;
+    } else if (isViirsOnly && mappedDetections) {
+      brief.className = 'leg-brief';
+      brief.innerHTML = `<strong>${fmtCompact(mappedDetections)}</strong> VIIRS detections${topForestName ? ` · Top: <strong>${topForestName}</strong>` : ''}${outageNote}.`;
     } else if (topForestName && statusClass === 'is-extreme') {
       brief.className = 'leg-brief';
       brief.innerHTML = `<strong>Alert:</strong> Peak pressure in <strong>${topForestName}</strong>${topStateName && !topForestName.includes(topStateName) ? ` (${topStateName})` : ''}${outageNote}.`;

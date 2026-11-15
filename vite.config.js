@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import zlib from 'node:zlib';
 import { defineConfig } from 'vite';
 
 const SCOPE_PATTERNS = [
@@ -10,6 +11,63 @@ const SCOPE_PATTERNS = [
   { scope: 'usa', match: ['usa', 'united_states', 'u.s.'] },
   { scope: 'russia', match: ['russia', 'rus_'] },
 ];
+
+function findZipCsvEntries(buf) {
+  let eocd = -1;
+  const minOffset = Math.max(0, buf.length - 65557);
+  for (let i = buf.length - 22; i >= minOffset; i -= 1) {
+    if (buf.readUInt32LE(i) === 0x06054b50) {
+      eocd = i;
+      break;
+    }
+  }
+  if (eocd < 0) return [];
+  const cdSize = buf.readUInt32LE(eocd + 12);
+  const cdOffset = buf.readUInt32LE(eocd + 16);
+  const out = [];
+  let ptr = cdOffset;
+  const cdEnd = Math.min(buf.length, cdOffset + cdSize);
+  while (ptr + 46 <= cdEnd && buf.readUInt32LE(ptr) === 0x02014b50) {
+    const method = buf.readUInt16LE(ptr + 10);
+    const compSize = buf.readUInt32LE(ptr + 20);
+    const uncompSize = buf.readUInt32LE(ptr + 24);
+    const fnLen = buf.readUInt16LE(ptr + 28);
+    const exLen = buf.readUInt16LE(ptr + 30);
+    const cmLen = buf.readUInt16LE(ptr + 32);
+    const localOffset = buf.readUInt32LE(ptr + 42);
+    const name = buf.toString('utf8', ptr + 46, ptr + 46 + fnLen);
+    if (name.toLowerCase().endsWith('.csv') && !name.startsWith('__MACOSX/')) {
+      out.push({ name, method, compSize, uncompSize, localOffset });
+    }
+    ptr += 46 + fnLen + exLen + cmLen;
+  }
+  return out;
+}
+
+function zipHasCsvDataRows(filePath) {
+  try {
+    const buf = fs.readFileSync(filePath);
+    const entries = findZipCsvEntries(buf);
+    return entries.some((e) => e.uncompSize > 120);
+  } catch {
+    return false;
+  }
+}
+
+function readZipFirstCsvBuffer(filePath) {
+  const buf = fs.readFileSync(filePath);
+  const entries = findZipCsvEntries(buf);
+  if (!entries.length) return null;
+  const e = entries[0];
+  if (buf.readUInt32LE(e.localOffset) !== 0x04034b50) return null;
+  const fnLen = buf.readUInt16LE(e.localOffset + 26);
+  const exLen = buf.readUInt16LE(e.localOffset + 28);
+  const start = e.localOffset + 30 + fnLen + exLen;
+  const slice = buf.subarray(start, start + e.compSize);
+  if (e.method === 0) return slice;
+  if (e.method === 8) return zlib.inflateRawSync(slice);
+  throw new Error(`Unsupported zip compression method ${e.method} in ${filePath}`);
+}
 
 function csvHasDataRows(filePath) {
   let fd;
@@ -67,18 +125,22 @@ export function buildDataManifest(dataRoot = path.resolve('data')) {
     for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, ent.name);
       if (ent.isDirectory()) {
+        if (ent.name === 'fire-grid') continue;
         walk(full);
         continue;
       }
-      if (!ent.isFile() || !ent.name.toLowerCase().endsWith('.csv')) continue;
-      if (!csvHasDataRows(full)) continue;
+      if (!ent.isFile()) continue;
+      const lower = ent.name.toLowerCase();
+      const isCsv = lower.endsWith('.csv');
+      const isZip = lower.endsWith('.zip');
+      if (!isCsv && !isZip) continue;
+      if (isCsv ? !csvHasDataRows(full) : !zipHasCsvDataRows(full)) continue;
 
       const rel = path.relative(dataRoot, full).replace(/\\/g, '/');
       const relLower = rel.toLowerCase();
       const scope = detectScope(rel, ent.name);
       if (!scope) continue;
 
-      const lower = ent.name.toLowerCase();
       const url = `./data/${rel}`;
       const bucket = ensure(scope);
 
@@ -112,7 +174,8 @@ export function buildDataManifest(dataRoot = path.resolve('data')) {
         const yearMatch = ent.name.match(/(?:^|[_-])((?:19|20)\d{2})(?:[_.-]|$)/);
         const year = yearMatch ? Number(yearMatch[1]) : null;
         const sensor = lower.includes('viirs') ? 'viirs' : lower.includes('modis') ? 'modis' : 'other';
-        bucket.fires.push({ url, year, sensor, file: ent.name });
+        const gridUrl = isZip && year ? `./data/fire-grid/${scope}-${year}.json` : undefined;
+        bucket.fires.push({ url, year, sensor, file: ent.name, ...(isZip ? { format: 'zip' } : {}), ...(gridUrl ? { gridUrl } : {}) });
       }
     }
   }
@@ -142,17 +205,17 @@ function splitCsvLine(line) {
   return out;
 }
 
-function parseCsvSync(filePath, onRow) {
-  const txt = fs.readFileSync(filePath, 'utf8');
+function parseCsvBufferSync(buf, onRow) {
   let pos = 0;
   let headers = null;
   let idx = null;
-  while (pos < txt.length) {
-    let nl = txt.indexOf('\n', pos);
-    if (nl < 0) nl = txt.length;
-    let line = txt.slice(pos, nl);
+  const len = buf.length;
+  while (pos < len) {
+    let nl = buf.indexOf(10, pos);
+    if (nl < 0) nl = len;
+    const end = nl > pos && buf[nl - 1] === 13 ? nl - 1 : nl;
+    const line = buf.toString('utf8', pos, end);
     pos = nl + 1;
-    if (line.endsWith('\r')) line = line.slice(0, -1);
     if (!line) continue;
     const cells = splitCsvLine(line);
     if (!headers) {
@@ -164,15 +227,22 @@ function parseCsvSync(filePath, onRow) {
   }
 }
 
+function parseCsvSync(filePath, onRow) {
+  const buf = fs.readFileSync(filePath);
+  parseCsvBufferSync(buf, onRow);
+}
+
 function resolveFile(dataRoot, relUrl) {
   return path.join(dataRoot, relUrl.replace(/^\.\/data\//, ''));
 }
 
 function createFireAccumulator() {
   return {
-    annualCount: new Map(),
+    modisAnnualCount: new Map(),
+    modisMonthlyCount: new Map(),
+    viirsAnnualCount: new Map(),
+    viirsMonthlyCount: new Map(),
     annualFrp: new Map(),
-    monthlyCount: new Map(),
     monthlyFrp: new Map(),
     yearDetails: new Map(),
   };
@@ -183,6 +253,8 @@ function getYearDetail(acc, yr) {
   if (!d) {
     d = {
       detections: 0,
+      modisTotal: 0,
+      viirsTotal: 0,
       totalFrpMw: 0,
       maxFrpMw: 0,
       highFrpCount: 0,
@@ -224,6 +296,8 @@ function finalizeAccumulator(acc) {
       .map(([name, s]) => ({ name, state: s.state, count: s.count, frpMw: Math.round(s.frp) }));
     years[yr] = {
       detections: d.detections,
+      modisTotal: d.modisTotal,
+      viirsTotal: d.viirsTotal,
       totalFrpMw: Math.round(d.totalFrpMw),
       maxFrpMw: Math.round(d.maxFrpMw),
       meanFrpMw: d.detections ? Number((d.totalFrpMw / d.detections).toFixed(1)) : 0,
@@ -242,22 +316,29 @@ function finalizeAccumulator(acc) {
     };
   }
 
-  return {
-    series: {
-      fire_count: {
-        annual: toSortedPairs(acc.annualCount, false),
-        monthly: toSortedPairs(acc.monthlyCount, false),
-      },
-      fire_frp: {
-        annual: toSortedPairs(acc.annualFrp, true),
-        monthly: toSortedPairs(acc.monthlyFrp, true),
-      },
+  const series = {
+    fire_frp: {
+      annual: toSortedPairs(acc.annualFrp, true),
+      monthly: toSortedPairs(acc.monthlyFrp, true),
     },
-    years,
   };
+  if (acc.modisAnnualCount.size > 0) {
+    series.fire_count = {
+      annual: toSortedPairs(acc.modisAnnualCount, false),
+      monthly: toSortedPairs(acc.modisMonthlyCount, false),
+    };
+  }
+  if (acc.viirsAnnualCount.size > 0) {
+    series.viirs_count = {
+      annual: toSortedPairs(acc.viirsAnnualCount, false),
+      monthly: toSortedPairs(acc.viirsMonthlyCount, false),
+    };
+  }
+
+  return { series, years };
 }
 
-export function buildScopeIndex(dataRoot = path.resolve('data')) {
+export function buildScopeIndex(dataRoot = path.resolve('data'), options = {}) {
   const manifest = buildDataManifest(dataRoot);
   let regions = null;
   try {
@@ -295,15 +376,20 @@ export function buildScopeIndex(dataRoot = path.resolve('data')) {
     const basinAcc = basinBbox ? createFireAccumulator() : null;
 
     const ingestRow = (acc, yr, ym, frp, frpClass, inNf, sat, dn, stateName, forestName, sensorLabel) => {
-      acc.annualCount.set(yr, (acc.annualCount.get(yr) || 0) + 1);
-      acc.annualFrp.set(yr, (acc.annualFrp.get(yr) || 0) + frp);
-      if (ym) {
-        acc.monthlyCount.set(ym, (acc.monthlyCount.get(ym) || 0) + 1);
-        acc.monthlyFrp.set(ym, (acc.monthlyFrp.get(ym) || 0) + frp);
+      if (sensorLabel === 'VIIRS') {
+        acc.viirsAnnualCount.set(yr, (acc.viirsAnnualCount.get(yr) || 0) + 1);
+        if (ym) acc.viirsMonthlyCount.set(ym, (acc.viirsMonthlyCount.get(ym) || 0) + 1);
+      } else {
+        acc.modisAnnualCount.set(yr, (acc.modisAnnualCount.get(yr) || 0) + 1);
+        if (ym) acc.modisMonthlyCount.set(ym, (acc.modisMonthlyCount.get(ym) || 0) + 1);
       }
+      acc.annualFrp.set(yr, (acc.annualFrp.get(yr) || 0) + frp);
+      if (ym) acc.monthlyFrp.set(ym, (acc.monthlyFrp.get(ym) || 0) + frp);
       const d = getYearDetail(acc, yr);
       if (!d.sensor && sensorLabel) d.sensor = sensorLabel;
       d.detections += 1;
+      if (sensorLabel === 'VIIRS') d.viirsTotal += 1;
+      else d.modisTotal += 1;
       d.totalFrpMw += frp;
       if (frp > d.maxFrpMw) d.maxFrpMw = frp;
       if (frpClass === 'high') d.highFrpCount += 1;
@@ -335,11 +421,50 @@ export function buildScopeIndex(dataRoot = path.resolve('data')) {
       }
     };
 
+    const writeGrids = Boolean(options && options.writeGrids);
+    const addGridPoint = (gridMap, gridDeg, lat, lon, frp, isHighFrp, dateStr, stateName, forestName) => {
+      const snapLat = Math.floor(lat / gridDeg) * gridDeg + gridDeg / 2;
+      const snapLon = Math.floor(lon / gridDeg) * gridDeg + gridDeg / 2;
+      const key = `${snapLon.toFixed(4)},${snapLat.toFixed(4)}`;
+      const cur = gridMap.get(key);
+      if (!cur) {
+        gridMap.set(key, {
+          lon: snapLon,
+          lat: snapLat,
+          count: 1,
+          frp_sum: frp,
+          max_frp: frp,
+          high_frp: isHighFrp ? 1 : 0,
+          first: dateStr,
+          last: dateStr,
+          state: stateName,
+          forest: forestName,
+        });
+      } else {
+        cur.count += 1;
+        cur.frp_sum += frp;
+        if (frp > cur.max_frp) {
+          cur.max_frp = frp;
+          if (stateName) cur.state = stateName;
+          if (forestName) cur.forest = forestName;
+        }
+        if (isHighFrp) cur.high_frp += 1;
+        if (dateStr && dateStr < cur.first) cur.first = dateStr;
+        if (dateStr && dateStr > cur.last) cur.last = dateStr;
+      }
+    };
+
     for (const item of pickedFiles) {
       const full = resolveFile(dataRoot, item.url);
       if (!fs.existsSync(full)) continue;
       const sensorLabel = item.sensor === 'viirs' ? 'VIIRS' : item.sensor === 'modis' ? 'MODIS' : null;
-      parseCsvSync(full, (cells, idx) => {
+      const buf = item.format === 'zip' ? readZipFirstCsvBuffer(full) : fs.readFileSync(full);
+      if (!buf) continue;
+      const buildGrid = writeGrids && item.format === 'zip' && Number.isInteger(item.year);
+      const cGrid = buildGrid ? new Map() : null;
+      const bGrid = buildGrid && basinBbox ? new Map() : null;
+
+      parseCsvBufferSync(buf, (cells, idx) => {
         const col = (names) => {
           for (const n of names) {
             if (idx.has(n)) return idx.get(n);
@@ -361,7 +486,7 @@ export function buildScopeIndex(dataRoot = path.resolve('data')) {
         const iNf = col(['in_national_forest']);
         const iSat = col(['satellite']);
         const iDn = col(['day_night']);
-        const iSt = col(['state', 'province']);
+        const iSt = col(['state', 'province', 'region']);
         const iFo = col(['forest_name', 'forest']);
 
         const rawDate = iDate >= 0 ? (cells[iDate] || '').trim() : '';
@@ -385,12 +510,45 @@ export function buildScopeIndex(dataRoot = path.resolve('data')) {
         const dn = iDn >= 0 ? (cells[iDn] || '').trim().toLowerCase() : '';
         const stateName = iSt >= 0 ? (cells[iSt] || '').trim() : '';
         const forestName = iFo >= 0 ? (cells[iFo] || '').trim() : '';
+        const dateStr = rawDate || `${yr}-07-01`;
 
         ingestRow(countryAcc, yr, ym, frp, frpClass, inNf, sat, dn, stateName, forestName, sensorLabel);
+        if (cGrid) addGridPoint(cGrid, 0.2, lat, lon, frp, frpClass === 'high', dateStr, stateName, forestName);
         if (basinAcc && lon >= basinBbox[0] && lon <= basinBbox[2] && lat >= basinBbox[1] && lat <= basinBbox[3]) {
           ingestRow(basinAcc, yr, ym, frp, frpClass, inNf, sat, dn, stateName, forestName, sensorLabel);
+          if (bGrid) addGridPoint(bGrid, 0.05, lat, lon, frp, frpClass === 'high', dateStr, stateName, forestName);
         }
       });
+
+      if (cGrid && cGrid.size) {
+        const gridDir = path.join(dataRoot, 'fire-grid');
+        fs.mkdirSync(gridDir, { recursive: true });
+        const toFc = (scopeName, gridDeg, map) => ({
+          type: 'FeatureCollection',
+          scope: scopeName,
+          year: item.year,
+          gridDeg,
+          summary: { sensor: sensorLabel },
+          features: Array.from(map.values()).map((it) => ({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [it.lon, it.lat] },
+            properties: {
+              count: it.count,
+              frp_sum: Number(it.frp_sum.toFixed(1)),
+              max_frp: Number(it.max_frp.toFixed(1)),
+              high_frp: it.high_frp,
+              first: it.first,
+              last: it.last,
+              state: it.state || undefined,
+              forest: it.forest || undefined,
+            },
+          })),
+        });
+        fs.writeFileSync(path.join(gridDir, `${scopeKey}-${item.year}.json`), JSON.stringify(toFc(scopeKey, 0.2, cGrid)));
+        if (bGrid && basinKey) {
+          fs.writeFileSync(path.join(gridDir, `${scopeKey}-${basin.id}-${item.year}.json`), JSON.stringify(toFc(basinKey, 0.05, bGrid)));
+        }
+      }
     }
 
     const summaryByYear = [];
@@ -666,7 +824,7 @@ function dataPipelinePlugin() {
 
   const getScopeIndexJson = () => {
     if (!cachedScopeIndexJson) {
-      cachedScopeIndexJson = JSON.stringify(buildScopeIndex(path.resolve('data')));
+      cachedScopeIndexJson = JSON.stringify(buildScopeIndex(path.resolve('data'), { writeGrids: true }));
     }
     return cachedScopeIndexJson;
   };
@@ -696,8 +854,8 @@ function dataPipelinePlugin() {
       const src = path.resolve('data');
       const dest = path.resolve('dist/data');
       if (fs.existsSync(src)) {
-        const manifestJson = JSON.stringify(buildDataManifest(src));
         const scopeIndexJson = getScopeIndexJson();
+        const manifestJson = JSON.stringify(buildDataManifest(src));
         fs.writeFileSync(path.join(src, 'manifest.json'), manifestJson);
         fs.writeFileSync(path.join(src, 'scope-index.json'), scopeIndexJson);
         fs.cpSync(src, dest, { recursive: true });

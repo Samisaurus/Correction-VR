@@ -168,13 +168,110 @@ export async function parseCsv(text, onRow, chunkRows = DATA_CONFIG.chunkRows) {
   }
 }
 
+async function streamZipCsv(source, onRow, chunkRows = DATA_CONFIG.chunkRows) {
+  let buf;
+  if (typeof source === 'string') {
+    let res;
+    try {
+      res = await fetch(source);
+    } catch {
+      return false;
+    }
+    if (!res.ok) return false;
+    buf = await res.arrayBuffer();
+  } else if (typeof source.arrayBuffer === 'function') {
+    buf = await source.arrayBuffer();
+  } else {
+    return false;
+  }
+
+  const u8 = new Uint8Array(buf);
+  const view = new DataView(buf);
+  let eocd = -1;
+  const minOff = Math.max(0, u8.length - 65557);
+  for (let i = u8.length - 22; i >= minOff; i -= 1) {
+    if (view.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) return false;
+  const cdSize = view.getUint32(eocd + 12, true);
+  const cdOff = view.getUint32(eocd + 16, true);
+  let ptr = cdOff;
+  const cdEnd = Math.min(u8.length, cdOff + cdSize);
+  let picked = null;
+  while (ptr + 46 <= cdEnd && view.getUint32(ptr, true) === 0x02014b50) {
+    const method = view.getUint16(ptr + 10, true);
+    const compSize = view.getUint32(ptr + 20, true);
+    const fnLen = view.getUint16(ptr + 28, true);
+    const exLen = view.getUint16(ptr + 30, true);
+    const cmLen = view.getUint16(ptr + 32, true);
+    const localOff = view.getUint32(ptr + 42, true);
+    const name = new TextDecoder().decode(u8.subarray(ptr + 46, ptr + 46 + fnLen));
+    if (name.toLowerCase().endsWith('.csv') && !name.startsWith('__MACOSX/')) {
+      picked = { method, compSize, localOff };
+      break;
+    }
+    ptr += 46 + fnLen + exLen + cmLen;
+  }
+  if (!picked || view.getUint32(picked.localOff, true) !== 0x04034b50) return false;
+  const lFn = view.getUint16(picked.localOff + 26, true);
+  const lEx = view.getUint16(picked.localOff + 28, true);
+  const start = picked.localOff + 30 + lFn + lEx;
+  const compBlob = new Blob([u8.subarray(start, start + picked.compSize)]);
+  let stream = compBlob.stream();
+  if (picked.method === 8 && typeof DecompressionStream === 'function') {
+    stream = stream.pipeThrough(new DecompressionStream('deflate-raw'));
+  } else if (picked.method !== 0) {
+    return false;
+  }
+
+  const reader = stream.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let carry = '';
+  let cols = null;
+  let headers = null;
+  let rowCount = 0;
+  const rowBuf = [];
+  const handleLine = (raw) => {
+    const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
+    if (!line || !line.trim()) return;
+    if (!cols) { ({ cols, headers } = resolveColumns(line)); return; }
+    const cells = line.indexOf('"') >= 0 ? splitCsvRow(line) : fastSplit(line, rowBuf);
+    onRow(cells, cols, headers);
+    rowCount += 1;
+  };
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    const chunk = carry + decoder.decode(value, { stream: true });
+    let pos = 0;
+    while (true) {
+      const nl = chunk.indexOf('\n', pos);
+      if (nl < 0) break;
+      handleLine(chunk.slice(pos, nl));
+      pos = nl + 1;
+      if (chunkRows > 0 && rowCount > 0 && rowCount % chunkRows === 0) {
+        await new Promise((r) => setTimeout(r, 0));
+      }
+    }
+    carry = chunk.slice(pos);
+  }
+  carry += decoder.decode();
+  if (carry.trim()) handleLine(carry);
+  return true;
+}
+
 /**
- * Stream a CSV source (URL string or File/Blob) line-by-line via ReadableStream so multi-decade
- * 20–60+ MB FIRMS files never allocate massive intermediate string arrays.
+ * Stream a CSV source (URL string or File/Blob; supports .zip archives) line-by-line cleanly.
  */
 async function streamCsv(source, onRow, chunkRows = DATA_CONFIG.chunkRows) {
   if (!source) return false;
+  if (typeof source === 'string' && source.toLowerCase().split('?')[0].endsWith('.zip')) {
+    return streamZipCsv(source, onRow, chunkRows);
+  }
   if (typeof source !== 'string') {
+    if (source.name && String(source.name).toLowerCase().endsWith('.zip')) {
+      return streamZipCsv(source, onRow, chunkRows);
+    }
     if (typeof source.text === 'function') {
       await parseCsv(await source.text(), onRow, chunkRows);
       return true;
@@ -252,24 +349,24 @@ function selectSensorEntries(entries, year) {
   const matches = entries.filter((e) => e.year === null || e.year === year);
   if (!matches.length) return [];
   const pref = DATA_CONFIG.sensorPreference || 'viirs-first';
-  if (pref === 'merge') return matches.map((e) => e.url);
+  if (pref === 'merge') return matches;
   const primary = pref === 'modis-first' ? 'modis' : 'viirs';
   const secondary = primary === 'viirs' ? 'modis' : 'viirs';
   const pickedPrimary = matches.filter((e) => e.sensor === primary);
-  if (pickedPrimary.length) return pickedPrimary.map((e) => e.url);
+  if (pickedPrimary.length) return pickedPrimary;
   const pickedSecondary = matches.filter((e) => e.sensor === secondary);
-  if (pickedSecondary.length) return pickedSecondary.map((e) => e.url);
-  return matches.map((e) => e.url);
+  if (pickedSecondary.length) return pickedSecondary;
+  return matches;
 }
 
 async function resolveSourcesForYear(scope, kind, year) {
   const override = csvOverrides.get(`${scope}:${kind}`);
-  if (override) return { sources: [override], clipBbox: null };
+  if (override) return { sources: [override], clipBbox: null, gridUrl: null };
 
   const scopeCfg = DATA_CONFIG.scopes && DATA_CONFIG.scopes[scope];
   const prop = kind === 'fires' ? 'firesCsv' : kind === 'air' ? 'airCsv' : 'seriesCsv';
   if (scopeCfg && scopeCfg[prop]) {
-    return { sources: [scopeCfg[prop].replace('{scope}', scope).replace('{year}', String(year))], clipBbox: null };
+    return { sources: [scopeCfg[prop].replace('{scope}', scope).replace('{year}', String(year))], clipBbox: null, gridUrl: null };
   }
 
   const manifest = await getManifest();
@@ -278,7 +375,10 @@ async function resolveSourcesForYear(scope, kind, year) {
     if (kind === 'fires') {
       if (entry && Array.isArray(entry.fires) && entry.fires.length) {
         const picked = selectSensorEntries(entry.fires, year);
-        if (picked.length) return { sources: picked, clipBbox: null };
+        if (picked.length) {
+          const gridEntry = picked.find((e) => e.gridUrl);
+          return { sources: picked.map((e) => e.url), clipBbox: null, gridUrl: gridEntry ? gridEntry.gridUrl : null };
+        }
       }
       // If a case-study basin has no dedicated fire CSVs, filter the parent country's CSV by basin bbox
       if (scope.includes('/')) {
@@ -289,14 +389,16 @@ async function resolveSourcesForYear(scope, kind, year) {
           if (picked.length) {
             const c = countryEntry(countryId);
             const bbox = c && c.basin && c.basin.id === basinId && Array.isArray(c.basin.bbox) ? c.basin.bbox : null;
-            return { sources: picked, clipBbox: bbox };
+            const gridEntry = picked.find((e) => e.gridUrl);
+            const basinGridUrl = gridEntry && year ? `${BASE}fire-grid/${countryId}-${basinId}-${year}.json` : null;
+            return { sources: picked.map((e) => e.url), clipBbox: bbox, gridUrl: basinGridUrl };
           }
         }
       }
-      return { sources: [], clipBbox: null };
+      return { sources: [], clipBbox: null, gridUrl: null };
     }
     const direct = entry && entry[kind];
-    return { sources: direct ? [direct] : [], clipBbox: null };
+    return { sources: direct ? [direct] : [], clipBbox: null, gridUrl: null };
   }
 
   // Static fallback when no manifest is available
@@ -304,6 +406,7 @@ async function resolveSourcesForYear(scope, kind, year) {
   return {
     sources: pat ? [pat.replace('{scope}', scope).replace('{year}', String(year))] : [],
     clipBbox: null,
+    gridUrl: null,
   };
 }
 
@@ -413,7 +516,13 @@ async function loadSummaryData(entry, preIndexed) {
   if (preIndexed && preIndexed.years) {
     for (const [yrStr, detail] of Object.entries(preIndexed.years)) {
       const yr = Number(yrStr);
-      const prev = byYear.get(yr) || { year: yr, modisTotal: detail.detections, viirsTotal: 0, allTotal: detail.detections };
+      const isViirsOnly = detail.sensor === 'VIIRS' && !(detail.modisTotal > 0);
+      const prev = byYear.get(yr) || {
+        year: yr,
+        modisTotal: detail.modisTotal !== undefined ? detail.modisTotal : (isViirsOnly ? 0 : detail.detections),
+        viirsTotal: detail.viirsTotal !== undefined ? detail.viirsTotal : (isViirsOnly ? detail.detections : 0),
+        allTotal: detail.detections,
+      };
       byYear.set(yr, {
         ...prev,
         detections: detail.detections,
@@ -462,7 +571,11 @@ async function loadSummaryData(entry, preIndexed) {
   if (!byYear.size && !allForests.length && !preIndexed) return null;
 
   const modisTotals = Array.from(byYear.values())
-    .map((d) => d.modisTotal || d.detections || d.allTotal)
+    .map((d) => d.modisTotal || (d.sensor !== 'VIIRS' ? d.detections : 0))
+    .filter((v) => v > 0)
+    .sort((a, b) => a - b);
+  const viirsTotals = Array.from(byYear.values())
+    .map((d) => d.viirsTotal || (d.sensor === 'VIIRS' ? d.detections : 0))
     .filter((v) => v > 0)
     .sort((a, b) => a - b);
   const frpTotals = Array.from(byYear.values())
@@ -480,6 +593,9 @@ async function loadSummaryData(entry, preIndexed) {
     medianTotal: quantileSorted(modisTotals, 0.5),
     p75Total: quantileSorted(modisTotals, 0.75),
     p90Total: quantileSorted(modisTotals, 0.9),
+    medianViirs: quantileSorted(viirsTotals, 0.5),
+    p75Viirs: quantileSorted(viirsTotals, 0.75),
+    p90Viirs: quantileSorted(viirsTotals, 0.9),
     medianFrp: quantileSorted(frpTotals, 0.5),
     p75Frp: quantileSorted(frpTotals, 0.75),
     p90Frp: quantileSorted(frpTotals, 0.9),
@@ -956,6 +1072,12 @@ export async function getScope(state) {
             monthly: filterMonthlyByYears(preIndexed.series.fire_count.monthly),
           };
         }
+        if (!mergedSeries.variables.viirs_count && preIndexed.series.viirs_count) {
+          mergedSeries.variables.viirs_count = {
+            annual: filterByYears(preIndexed.series.viirs_count.annual),
+            monthly: filterMonthlyByYears(preIndexed.series.viirs_count.monthly),
+          };
+        }
         if (!mergedSeries.variables.fire_frp && preIndexed.series.fire_frp) {
           mergedSeries.variables.fire_frp = {
             annual: filterByYears(preIndexed.series.fire_frp.annual),
@@ -971,7 +1093,7 @@ export async function getScope(state) {
           .sort((a, b) => a.year - b.year);
         if (!mergedSeries.variables.fire_count) {
           const annual = rows
-            .map((r) => [r.year, r.modisTotal || r.detections || r.allTotal])
+            .map((r) => [r.year, r.modisTotal || (r.sensor !== 'VIIRS' ? r.detections : 0)])
             .filter(([, v]) => v > 0);
           if (annual.length) mergedSeries.variables.fire_count = { annual, monthly: [] };
         }
@@ -1043,7 +1165,25 @@ async function yearLayer(state, folder, year) {
   const isBasin = scope.includes('/');
 
   if (DATA_CONFIG.mode !== 'geojson') {
-    const { sources, clipBbox } = await resolveSourcesForYear(scope, folder, y);
+    const { sources, clipBbox, gridUrl } = await resolveSourcesForYear(scope, folder, y);
+    if (folder === 'fires' && gridUrl) {
+      const preGrid = await fetchJsonOptional(gridUrl);
+      if (preGrid && Array.isArray(preGrid.features)) {
+        const si = await getScopeIndex();
+        const yrDet = si && si.scopes && si.scopes[scope] && si.scopes[scope].years ? si.scopes[scope].years[y] : null;
+        if (yrDet) {
+          preGrid.summary = {
+            ...(preGrid.summary || {}),
+            detections: yrDet.detections,
+            totalFrpMw: yrDet.totalFrpMw,
+            maxFrpMw: yrDet.maxFrpMw,
+            topState: yrDet.topStates && yrDet.topStates[0] ? { name: yrDet.topStates[0].name, value: yrDet.topStates[0].count } : undefined,
+            topForest: yrDet.topForests && yrDet.topForests[0] ? { name: yrDet.topForests[0].name, value: yrDet.topForests[0].count } : undefined,
+          };
+        }
+        return preGrid;
+      }
+    }
     if (sources.length) {
       const indexed = await loadSpatialCsvByYear(sources, folder, scope, isBasin, y, clipBbox);
       if (indexed && indexed.has(y)) return indexed.get(y);

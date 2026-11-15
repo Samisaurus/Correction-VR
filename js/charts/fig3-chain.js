@@ -364,9 +364,10 @@ export async function mount(el, ctx) {
       // Combustion source card on left
       const hubX = 82;
       const hubY = 126;
-      const detCount = yrRow ? (yrRow.modisTotal || yrRow.detections) : null;
+      const detCount = yrRow ? (yrRow.modisTotal || yrRow.viirsTotal || yrRow.detections) : null;
+      const detSensor = yrRow && !(yrRow.modisTotal > 0) && (yrRow.viirsTotal > 0 || yrRow.sensor === 'VIIRS') ? 'VIIRS' : 'MODIS';
       const frpVal = yrRow ? yrRow.totalFrpMw : null;
-      const hubLine2 = detCount ? `${fmtCompact(detCount)} MODIS` : `CO₂ ${fmtMass(emYr.co2)}`;
+      const hubLine2 = detCount ? `${fmtCompact(detCount)} ${detSensor}` : `CO₂ ${fmtMass(emYr.co2)}`;
       const hubLine3 = frpVal ? `${fmtCompact(frpVal)} MW FRP` : `PM₂.₅ ${fmtMass(emYr.pm25)}`;
 
       svg.appendChild(svgEl('rect', {
@@ -635,10 +636,11 @@ export async function mount(el, ctx) {
     } else if (yrRow && Array.isArray(yrRow.topStates) && yrRow.topStates.length) {
       const rows = yrRow.topStates.slice(0, 7);
       const maxC = rows[0].count || 1;
+      const regSensor = yrRow && !(yrRow.modisTotal > 0) && (yrRow.viirsTotal > 0 || yrRow.sensor === 'VIIRS') ? 'VIIRS' : 'MODIS';
       regCol.innerHTML = `
         <div class="f3-reg-col-head">
           <span class="f3-reg-col-title">Top Regions (${yr})</span>
-          <span class="f3-reg-col-unit">MODIS det · FRP</span>
+          <span class="f3-reg-col-unit">${regSensor} det · FRP</span>
         </div>
         <div class="f3-reg-items">
           ${rows.map((r) => {
