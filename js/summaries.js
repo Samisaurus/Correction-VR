@@ -9,9 +9,9 @@ const COUNTRY_YEAR_SUMMARIES = {
     2004: 'Sharp boreal pivot to interior Alaska: extreme summer lightning storms ignited vast spruce and permafrost terrain, lifting Alaska alone to 42.3 Mt CO₂ out of 75.5 Mt nationally and sending fine particulate output up to 511.9 kt PM₂.₅.',
     2005: 'Back-to-back Alaskan boreal surge marked the second consecutive high-smoke year. Alaska released 50.4 Mt CO₂ (59% of the 85.6 Mt US total; 29,806 MODIS detections), while Louisiana and Arkansas led lower-48 winter/spring burn plumes.',
     2006: 'Subdued national carbon load (46.4 Mt CO₂; 240.8 kt PM₂.₅), shifting away from Alaska toward Washington (5.3 Mt) and dense southeastern pine-belt burning across Alabama and Florida.',
-    2007: 'Southeastern drought shock pushed Georgia (12.1 Mt CO₂) and Florida (6.0 Mt) ahead of every western state—the Okefenokee-era peat and swamp fires lifted national output to 60.8 Mt CO₂ despite moderate western totals.',
+    2007: 'Southeastern drought shock pushed Georgia (12.1 Mt CO₂) and Florida (6.0 Mt) ahead of every western state—the Okefenokee-era peat fires lifted national output to 60.8 Mt CO₂ despite moderate western totals.',
     2008: 'California’s June lightning siege inverted the typical late-summer fire calendar, driving 19.0 Mt CO₂ from northern California alone and keeping national smoke output at 51.4 Mt CO₂ and 279.9 kt PM₂.₅.',
-    2009: 'Return of severe Alaskan boreal burning: interior valleys emitted 47.4 Mt CO₂ (nearly three-fifths of the 80.6 Mt national total), producing 533.5 kt of breathable PM₂.₅ and thick summer haze across Yukon-Kuskokwim watersheds.',
+    2009: 'Return of severe Alaskan boreal burning: interior valleys emitted 47.4 Mt CO₂ (nearly three-fifths of the 80.6 Mt national total), producing 533.5 kt of breathable PM₂.₅ and thick summer haze across interior Yukon-Kuskokwim forest corridors.',
     2010: 'Quietest US forest-fire emissions year of the entire 2003–2026 archive (37.0 Mt CO₂; 207.8 kt PM₂.₅; 15,064 MODIS detections), with wet spring conditions muting western crowns while Alaska and Florida led modest burn totals.',
     2011: 'Historic southern drought rebound: Georgia (17.3 Mt CO₂) and Arizona’s Wallow-era conifer burns (8.1 Mt) lifted national emissions to 65.1 Mt CO₂ while Texas and Florida recorded intense spring dryness.',
     2012: 'Opening year of paired VIIRS–MODIS monitoring showed moderate total emissions (48.1 Mt CO₂; 254.2 kt PM₂.₅) concentrated in California (9.4 Mt) and Idaho (5.3 Mt), establishing the modern multi-sensor baseline.',
@@ -47,7 +47,7 @@ const COUNTRY_YEAR_SUMMARIES = {
     2014: 'Historic subarctic Northwest Territories crisis: prolonged dry summers burned vast permafrost-boreal terrain in NWT (160.5 Mt CO₂) and BC (96.2 Mt), reaching 300.3 Mt CO₂ and 2.40 Mt PM₂.₅.',
     2015: 'Prairie boreal siege: intense burning across Saskatchewan (109.6 Mt CO₂), Alberta (65.9 Mt), and BC (51.8 Mt) kept national emissions elevated at 271.7 Mt CO₂ and 2.18 Mt PM₂.₅.',
     2016: 'Paradoxical year: despite Fort McMurray’s devastating May urban catastrophe in Alberta (35.2 Mt CO₂), cool wet conditions elsewhere made 2016 Canada’s third-quietest emissions year overall (84.5 Mt CO₂).',
-    2017: 'Record-setting British Columbia crown fires: interior BC alone emitted 130.4 Mt CO₂, paired with NWT (67.1 Mt), driving 250.1 Mt CO₂ and 1.99 Mt PM₂.₅ into Pacific and Fraser watersheds.',
+    2017: 'Record-setting British Columbia crown fires: interior BC alone emitted 130.4 Mt CO₂, paired with NWT (67.1 Mt), driving 250.1 Mt CO₂ and 1.99 Mt PM₂.₅ across western mountain corridors.',
     2018: 'Concentrated BC smoke year: British Columbia accounted for 73% of Canada’s entire national burn output (98.7 Mt of 134.8 Mt CO₂), blanketing western valleys in prolonged late-summer haze.',
     2019: 'Early-summer northern Alberta flare-up (73.5 Mt CO₂—Chuckegg Creek era) paired with Yukon (17.6 Mt), keeping total national output modest at 129.5 Mt CO₂.',
     2020: 'Remarkable pandemic-year anomaly: cool, wet boreal weather collapsed Canadian forest emissions to an all-time record low of 18.4 Mt CO₂ and 135.7 kt PM₂.₅ (−87% below median), standing in sharp contrast to the US West Coast emergency.',
@@ -68,12 +68,12 @@ const COUNTRY_YEAR_SUMMARIES = {
     2007: 'Second-calmest year on record (99.3 Mt CO₂; 698.2 kt PM₂.₅), marked by limited spring/summer burns across Zabaykalsky, Irkutsk, and Khabarovsk.',
     2008: 'Major Amur–Baikal intensification: early spring steppe-forest complexes in Amur Oblast (84.2 Mt CO₂) and Zabaykalsky (71.4 Mt) surged national emissions to 353.5 Mt CO₂ and 2.60 Mt PM₂.₅.',
     2009: 'Return to subdued Siberian taiga conditions (132.4 Mt CO₂; 888.7 kt PM₂.₅), spread mildly across Sakha (28.1 Mt), Khabarovsk, and Amur.',
-    2010: 'Historic European Russia heatwave & peat crisis: though total tonnage stayed moderate (127.7 Mt CO₂), unusual western hotspots in Ryazan (13.5 Mt) and Nizhny Novgorod (11.4 Mt) choked Moscow and the Volga basin in dense toxic haze.',
+    2010: 'Historic European Russia heatwave & peat crisis: though total tonnage stayed moderate (127.7 Mt CO₂), unusual western hotspots in Ryazan (13.5 Mt) and Nizhny Novgorod (11.4 Mt) choked Moscow and the Volga plains in dense toxic haze.',
     2011: 'Shift back to northeastern permafrost taiga: Sakha Republic (Yakutia) jumped to 80.6 Mt CO₂, lifting national forest emissions to 253.0 Mt CO₂ and 1.85 Mt PM₂.₅.',
     2012: 'Severe Siberian taiga & duff-burning year (#3 CO₂ on record): Sakha (165.8 Mt CO₂), Krasnoyarsk (130.8 Mt), and Khabarovsk (81.5 Mt) drove 615.8 Mt CO₂ alongside extreme carbon monoxide (50.2 Mt CO) from smoldering boreal organic soils.',
     2013: 'More localized northeastern season (218.5 Mt CO₂; 1.66 Mt PM₂.₅), heavily concentrated in Sakha Republic (Yakutia) at 123.4 Mt CO₂ while western Siberia remained damp.',
     2014: 'Above-median eastern Siberian summer: Sakha (131.7 Mt CO₂) and Irkutsk (79.3 Mt) pushed total national emissions to 316.9 Mt CO₂ and 2.41 Mt PM₂.₅.',
-    2015: 'Lake Baikal drought crisis: Republic of Buryatia (58.8 Mt CO₂), Irkutsk (47.8 Mt), and Zabaykalsky (27.3 Mt) burned across Baikal watersheds, driving 202.9 Mt CO₂ and severe regional airshed impacts.',
+    2015: 'Baikal forest drought crisis: Republic of Buryatia (58.8 Mt CO₂), Irkutsk (47.8 Mt), and Zabaykalsky (27.3 Mt) burned across eastern Siberian timberlands, driving 202.9 Mt CO₂ and severe regional airshed impacts.',
     2016: 'Broad central-to-eastern Siberian stress: Krasnoyarsk (95.2 Mt CO₂), Irkutsk (92.3 Mt), and Amur (51.0 Mt) lifted emissions to 320.6 Mt CO₂ and 2.46 Mt PM₂.₅.',
     2017: 'Near-baseline boreal season (218.3 Mt CO₂; 1.66 Mt PM₂.₅) divided primarily between Sakha (74.4 Mt) and Irkutsk Oblast (56.3 Mt).',
     2018: 'Strong dual-region surge (#4 on record): Sakha (150.0 Mt CO₂) and Amur Oblast (132.7 Mt) combined for 425.3 Mt CO₂ and 3.14 Mt PM₂.₅, sending heavy ash and smoke plumes across the Amur–Okhotsk corridor.',
@@ -88,27 +88,11 @@ const COUNTRY_YEAR_SUMMARIES = {
   },
 };
 
-const BASIN_NOTES = {
-  'usa/yukon': {
-    label: 'Yukon–Kuskokwim focus',
-    note: 'In Alaska’s Yukon–Kuskokwim watershed, fire dynamics hinge sharply on interior June–July lightning anomalies rather than Pacific Coast droughts—sending charcoal runoff directly down the Tanana, Porcupine, and Yukon corridors toward Bering Sea salmon estuaries.',
-  },
-  'canada/fraser': {
-    label: 'Fraser basin focus',
-    note: 'British Columbia’s Fraser watershed concentrates crown-fire severity across interior plateau pine stands; heavy burn years strip hillside cover and amplify autumn sediment and turbidity (Kd490) downstream in the Strait of Georgia plume.',
-  },
-  'russia/amur': {
-    label: 'Amur basin focus',
-    note: 'Along the Amur–Zabaykalsky–Khabarovsk corridor, spring steppe-forest transitions and summer larch burns funnel pyrogenic aerosols and ash directly across the Amur River estuary (Amur Liman) where Far Eastern salmon runs stage.',
-  },
-};
-
 export function getTimestampSummary(scopePath, year, scope) {
   const yr = Number(year);
   const countryId = scopePath.split('/')[0];
   const table = COUNTRY_YEAR_SUMMARIES[countryId] || COUNTRY_YEAR_SUMMARIES.usa;
   const countryText = table[yr] || `Satellite monitoring for ${yr} captures regional forest-fire detections and atmospheric emissions across ${scope && scope.meta ? scope.meta.name : countryId}.`;
-  const basinInfo = BASIN_NOTES[scopePath] || null;
 
   const em = scope && scope.emissions && scope.emissions.years ? scope.emissions.years[yr] : null;
   const ranks = scope && scope.emissions && scope.emissions.ranksByYear ? scope.emissions.ranksByYear[yr] : null;
@@ -124,7 +108,5 @@ export function getTimestampSummary(scopePath, year, scope) {
   return {
     kicker,
     text: countryText,
-    basinNote: basinInfo ? basinInfo.note : null,
-    basinLabel: basinInfo ? basinInfo.label : null,
   };
 }

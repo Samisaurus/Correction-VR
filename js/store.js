@@ -1,12 +1,14 @@
 // js/store.js
-// Purpose: observable application state store { countryId, view, year, focus, playing }.
+// Purpose: observable application state store { countryId, year, focus, playing, horizonYear, warmingPct, showPredictedOverlay }.
 
 export const INITIAL_STATE = Object.freeze({
   countryId: 'usa',
-  view: 'country',
   year: 2020,
   focus: 'fire_frp',
   playing: false,
+  horizonYear: 2030,
+  warmingPct: 15,
+  showPredictedOverlay: false,
 });
 
 let state = { ...INITIAL_STATE };

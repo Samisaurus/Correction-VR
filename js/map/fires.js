@@ -16,11 +16,11 @@ export function cellAreaKm2(lat, deg = 0.5) {
  * Compute detections per 5 km^2 for every fire cell and sort ascending by density
  * so higher-density red hotspots render cleanly on top of lower-density yellow dots.
  */
-export function enrichAndSortFires(fires, { isBasin = false, gridDeg = null } = {}) {
+export function enrichAndSortFires(fires, { gridDeg = null } = {}) {
   if (!fires || !Array.isArray(fires.features) || fires.features.length === 0) {
     return EMPTY;
   }
-  const deg = gridDeg || (isBasin ? 0.1 : 0.5);
+  const deg = gridDeg || 0.5;
   let perDeg = enrichedCache.get(fires);
   if (!perDeg) {
     perDeg = new Map();
@@ -174,11 +174,10 @@ export function addLayer(map, ctx) {
   return {
     update(state, payload) {
       const fires = payload && payload.fires && Array.isArray(payload.fires.features) ? payload.fires : null;
-      const isBasin = !!(payload && payload.scope && payload.scope.meta && payload.scope.meta.kind === 'basin');
-      const key = fires ? `${fires.scope || ''}:${fires.year || state.year}:${isBasin ? 'b' : 'c'}:${fires.gridDeg || ''}` : 'empty';
+      const key = fires ? `${fires.scope || ''}:${fires.year || state.year}:${fires.gridDeg || ''}` : 'empty';
       if (key !== lastKey) {
         lastKey = key;
-        const sorted = fires ? enrichAndSortFires(fires, { isBasin, gridDeg: fires.gridDeg || null }) : EMPTY;
+        const sorted = fires ? enrichAndSortFires(fires, { gridDeg: fires.gridDeg || null }) : EMPTY;
         map.getSource('fires-src').setData(sorted);
       }
       popup.remove();

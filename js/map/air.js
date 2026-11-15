@@ -1,5 +1,5 @@
 // js/map/air.js
-// Purpose: smooth organic smoke/AOD heatmap plume from air grid cells (or CSV points) with hover popup.
+// Purpose: smooth organic GFAS smoke & carbon plume heatmap from air grid cells with hover popup.
 
 const EMPTY = { type: 'FeatureCollection', features: [] };
 
@@ -15,7 +15,6 @@ function featureCentroid(f) {
   let sx = 0;
   let sy = 0;
   let n = 0;
-  // Exclude closing duplicate vertex if present
   const len = ring.length > 1 && ring[0][0] === ring[ring.length - 1][0] && ring[0][1] === ring[ring.length - 1][1]
     ? ring.length - 1
     : ring.length;
@@ -49,16 +48,15 @@ function toPointPlume(air) {
 }
 
 export function addLayer(map, ctx) {
-  const { fmt } = ctx.theme;
-  map.addSource('air-src', { type: 'geojson', data: EMPTY, attribution: 'Air: MERRA-2 (NASA GES DISC)' });
+  const { fmt, fmtMass, escHtml } = ctx.theme;
+  map.addSource('air-src', { type: 'geojson', data: EMPTY, attribution: 'Air: Copernicus CAMS GFAS' });
 
-  // Smooth GPU heatmap eliminates blocky grid squares
   map.addLayer({
     id: 'air-haze',
     type: 'heatmap',
     source: 'air-src',
     paint: {
-      'heatmap-weight': ['interpolate', ['linear'], ['coalesce', ['get', 'aod'], 0], 0, 0, 0.75, 1],
+      'heatmap-weight': ['max', ['coalesce', ['get', 'intensity'], 0], ['/', ['coalesce', ['get', 'aod'], 0], 0.75]],
       'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 1, 0.95, 4, 0.8, 7, 0.65],
       'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 1, 20, 3, 30, 5, 44, 8, 68],
       'heatmap-opacity': 0.85,
@@ -73,7 +71,6 @@ export function addLayer(map, ctx) {
     },
   });
 
-  // Transparent hover hit targets so AOD / PM2.5 popups still work everywhere
   map.addLayer({
     id: 'air-cells',
     type: 'circle',
@@ -89,9 +86,19 @@ export function addLayer(map, ctx) {
   map.on('mousemove', 'air-cells', (e) => {
     const f = e.features && e.features[0];
     if (!f) return;
-    const p = f.properties;
-    const pm = p.pm25 === null || p.pm25 === undefined || p.pm25 === 'null' ? '' : ` · PM2.5 ${fmt(p.pm25, 'pm25')} µg/m³`;
-    popup.setLngLat(e.lngLat).setHTML(`<strong>AOD ${fmt(p.aod, 'aod')}</strong> (May–Sep mean)${pm}`).addTo(map);
+    const p = f.properties || {};
+    const hasMass = p.co2 !== undefined || Number(p.pm25) > 0;
+    const loc = [p.forest, p.region].filter(Boolean).map(escHtml).join(' · ');
+    if (hasMass) {
+      const bcStr = p.bc !== undefined ? ` · BC ${fmtMass(p.bc, 'kt')}` : '';
+      popup.setLngLat(e.lngLat)
+        .setHTML(`<strong>PM₂.₅ ${fmtMass(p.pm25)}</strong> · CO₂ ${fmtMass(p.co2)}${bcStr}${loc ? `<br>${loc}` : ''}`)
+        .addTo(map);
+    } else if (p.aod !== undefined) {
+      popup.setLngLat(e.lngLat)
+        .setHTML(`<strong>AOD ${fmt(p.aod, 'aod')}</strong>${loc ? `<br>${loc}` : ''}`)
+        .addTo(map);
+    }
   });
   map.on('mouseleave', 'air-cells', () => popup.remove());
 

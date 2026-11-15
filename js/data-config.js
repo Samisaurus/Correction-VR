@@ -38,7 +38,6 @@ export const DATA_CONFIG = {
     pm25: ['pm25', 'pm2_5', 'surface_pm25'],
     variable: ['variable', 'var', 'var_id', 'metric'],
     value: ['value', 'val', 'mean', 'v'],
-    waterBody: ['water_body', 'waterbody', 'water_body_id', 'wb'],
     state: ['state', 'province', 'region', 'region_name', 'admin1'],
     forest: ['forest_name', 'forest', 'unit_name'],
     frpClass: ['frp_class'],
@@ -50,9 +49,7 @@ export const DATA_CONFIG = {
   // Grid cell size (degrees) used to aggregate large point-level CSVs (like NASA FIRMS 20–60 MB files)
   gridDeg: {
     countryFires: 0.2,
-    basinFires: 0.05,
-    countryAir: 2.0,
-    basinAir: 0.5,
+    countryAir: 0.5,
   },
 
   // Rows parsed per event-loop yield so large CSVs never freeze the UI

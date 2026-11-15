@@ -1,8 +1,7 @@
 // js/charts/fig3-chain.js
 // Purpose: Fig. 3 (#fig3) — Combustion Plume & Atmospheric Footprint interactive visualization
 //          combining CAMS GFAS species spectrum (2003–2026), MODIS 2002 baseline fingerprint,
-//          regional/forest emission drivers, the Fire->Air->Water->Fish Spearman chain,
-//          and a tailored factual & interpretive Season Dispatch summary per (country, year).
+//          regional/forest emission drivers, and a tailored Season Dispatch summary per (country, year).
 
 import { getTimestampSummary } from '../summaries.js';
 
@@ -49,7 +48,6 @@ const STYLE = `
 .f3-stage { min-height: 224px; animation: emberFadeIn 190ms var(--ease-out); }
 .f3-svg { display: block; width: 100%; height: auto; font-family: var(--f-sans); }
 
-/* Plume Spectrum interactive SVG */
 .f3-sp-row { cursor: pointer; }
 .f3-sp-row rect.f3-sp-hit { fill: transparent; transition: fill 130ms var(--ease-out); }
 .f3-sp-row:hover rect.f3-sp-hit { fill: rgba(246, 248, 250, 0.9); }
@@ -85,7 +83,6 @@ const STYLE = `
 }
 .f3-insp-metrics strong { color: var(--c-ink); }
 
-/* Regional & Forest drivers view */
 .f3-reg-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -148,23 +145,8 @@ const STYLE = `
 }
 .f3-reg-track { height: 4px; border-radius: 2px; background: #E2E8F0; overflow: hidden; }
 .f3-reg-fill { height: 100%; border-radius: 2px; }
+.f3-note { font-size: 12.5px; line-height: 1.5; margin: 6px 0 0; color: var(--c-muted); }
 
-/* Spearman chain view */
-.f3-node { cursor: pointer; transform-box: fill-box; transform-origin: center; transition: transform 170ms var(--ease-spring), opacity 160ms var(--ease-out); }
-.f3-node:hover { transform: scale(1.045); }
-.f3-node:active { transform: scale(0.95); transition-duration: 60ms; }
-.f3-node circle { fill: var(--c-paper); stroke-width: 2.5; transition: stroke-width 160ms var(--ease-out), fill 160ms var(--ease-out); }
-.f3-node.is-focus circle { stroke-width: 4; fill: var(--c-panel); }
-.f3-node.is-missing circle { stroke-dasharray: 4 3; }
-.f3-name { font-size: 13px; font-weight: 700; fill: var(--c-ink); text-anchor: middle; }
-.f3-value { font-family: var(--f-mono); font-size: 12.5px; font-weight: 600; fill: var(--c-ink); text-anchor: middle; }
-.f3-unit { font-size: 10px; fill: var(--c-muted); text-anchor: middle; }
-.f3-arrow { fill: none; stroke-width: 2; }
-.f3-label { font-family: var(--f-mono); font-size: 10.5px; fill: var(--c-muted); text-anchor: middle; }
-.f3-link { font-size: 11px; font-weight: 600; fill: var(--c-link); text-anchor: middle; cursor: pointer; }
-.f3-chain-note { font-size: 12.5px; line-height: 1.5; margin: 6px 0 0; color: var(--c-muted); }
-
-/* Tailored timestamp summary dispatch */
 .f3-dispatch {
   padding-top: 10px;
   border-top: 1px solid var(--c-edge);
@@ -187,13 +169,6 @@ const STYLE = `
   line-height: 1.56;
   color: var(--c-ink);
 }
-.f3-dispatch-basin {
-  margin: 2px 0 0;
-  font-size: 12.5px;
-  line-height: 1.48;
-  color: var(--c-muted);
-}
-.f3-dispatch-basin strong { color: var(--c-ink); font-weight: 600; }
 .f3-cap { font-size: 12px; font-style: italic; color: var(--c-muted); margin: 0; }
 
 @media (max-width: 759px) {
@@ -202,7 +177,6 @@ const STYLE = `
 `;
 
 const NS = 'http://www.w3.org/2000/svg';
-const CHAIN_NODES = ['fire', 'air', 'water', 'fish'];
 
 const SPECIES_META = [
   { id: 'co2',  label: 'CO₂',   full: 'Carbon dioxide',     group: 'Climate',  color: '#D55E00', role: 'Primary greenhouse gas released by biomass combustion' },
@@ -217,14 +191,6 @@ const SPECIES_META = [
 
 const SPECIES_MAP = new Map(SPECIES_META.map((s) => [s.id, s]));
 
-function injectStyle() {
-  if (document.querySelector('style[data-module="f3"]')) return;
-  const s = document.createElement('style');
-  s.dataset.module = 'f3';
-  s.textContent = STYLE;
-  document.head.appendChild(s);
-}
-
 function svgEl(tag, attrs = {}, text) {
   const n = document.createElementNS(NS, tag);
   for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
@@ -232,35 +198,11 @@ function svgEl(tag, attrs = {}, text) {
   return n;
 }
 
-function escHtml(s) {
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-function fmtMass(tonnes) {
-  const v = Number(tonnes);
-  if (!Number.isFinite(v)) return '—';
-  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(2)} Mt`;
-  if (v >= 1_000) return `${(v / 1_000).toFixed(1)} kt`;
-  return `${v.toFixed(0)} t`;
-}
-
-function fmtCompact(n) {
-  if (n === null || n === undefined || !Number.isFinite(Number(n))) return '—';
-  const v = Number(n);
-  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(2)}M`;
-  if (v >= 10_000) return `${(v / 1_000).toFixed(1)}k`;
-  return v.toLocaleString('en-US');
-}
-
-const linkLabel = (l, theme) => (l.rho === null
-  ? ['ρ = —', 'too few pairs']
-  : [`ρ = ${l.rho.toFixed(2)}`, `lag ${l.lag} ${l.lag_unit === 'month' ? 'mo' : 'yr'} · ${theme.fmtP(l.p_adj)}`]);
-
 export async function mount(el, ctx) {
-  injectStyle();
   const { store, data, theme } = ctx;
-  const { COLORS, VARS } = theme;
-  const TOKEN = { fire: COLORS.fire, air: COLORS.smoke, water: COLORS.water, fish: COLORS.fish };
+  const { injectCss, escHtml, fmtCompact, fmtMass } = theme;
+  const fmtMassExact = (t) => (Number.isFinite(Number(t)) && Number(t) >= 1_000_000 ? `${(Number(t) / 1_000_000).toFixed(2)} Mt` : fmtMass(t));
+  injectCss('f3', STYLE);
 
   el.innerHTML = '';
   const root = document.createElement('div');
@@ -285,7 +227,6 @@ export async function mount(el, ctx) {
   const VIEWS = [
     { id: 'plume', label: 'Plume & Pollutants' },
     { id: 'regions', label: 'Regional Drivers' },
-    { id: 'chain', label: 'Chain & Basin' },
   ];
   let activeTab = 'plume';
   let selectedSpecies = 'pm25';
@@ -319,9 +260,7 @@ export async function mount(el, ctx) {
   dispatchKicker.className = 'f3-dispatch-kicker';
   const dispatchBody = document.createElement('p');
   dispatchBody.className = 'f3-dispatch-body';
-  const dispatchBasin = document.createElement('p');
-  dispatchBasin.className = 'f3-dispatch-basin';
-  dispatch.append(dispatchKicker, dispatchBody, dispatchBasin);
+  dispatch.append(dispatchKicker, dispatchBody);
 
   const cap = document.createElement('p');
   cap.className = 'f3-cap';
@@ -347,7 +286,7 @@ export async function mount(el, ctx) {
       const co2Rank = ranks && ranks.co2 ? `#${ranks.co2}/${yearCount}` : '—';
       const co2Med = meds.co2 || 1;
       const co2Pct = Math.round(((emYr.co2 - co2Med) / co2Med) * 100);
-      subEl.textContent = `${yr}${yr === 2026 ? ' YTD (through Aug 31)' : ''} · CAMS GFAS · Total ${fmtMass(emYr.co2)} CO₂ (${co2Pct >= 0 ? '+' : ''}${co2Pct}% vs median · ${co2Rank})`;
+      subEl.textContent = `${yr}${yr === 2026 ? ' YTD (through Aug 31)' : ''} · CAMS GFAS · Total ${fmtMassExact(emYr.co2)} CO₂ (${co2Pct >= 0 ? '+' : ''}${co2Pct}% vs median · ${co2Rank})`;
 
       const svg = svgEl('svg', {
         class: 'f3-svg',
@@ -361,14 +300,17 @@ export async function mount(el, ctx) {
       svg.appendChild(svgEl('text', { class: 'f3-sp-hdr', x: '454', y: '14' }, 'Deviation vs. 2003–2026 Median (%)'));
       svg.appendChild(svgEl('text', { class: 'f3-sp-hdr', x: '724', y: '14', 'text-anchor': 'end' }, 'Rank'));
 
-      // Combustion source card on left
       const hubX = 82;
       const hubY = 126;
       const detCount = yrRow ? (yrRow.modisTotal || yrRow.viirsTotal || yrRow.detections) : null;
       const detSensor = yrRow && !(yrRow.modisTotal > 0) && (yrRow.viirsTotal > 0 || yrRow.sensor === 'VIIRS') ? 'VIIRS' : 'MODIS';
       const frpVal = yrRow ? yrRow.totalFrpMw : null;
-      const hubLine2 = detCount ? `${fmtCompact(detCount)} ${detSensor}` : `CO₂ ${fmtMass(emYr.co2)}`;
-      const hubLine3 = frpVal ? `${fmtCompact(frpVal)} MW FRP` : `PM₂.₅ ${fmtMass(emYr.pm25)}`;
+      const hubLine2 = detCount ? `${fmtCompact(detCount)} ${detSensor}` : `CO₂ ${fmtMassExact(emYr.co2)}`;
+      const hubLine3 = frpVal
+        ? `${fmtCompact(frpVal)} MW FRP`
+        : (yrRow && yrRow.viirsTotal > 0 && detSensor === 'MODIS'
+          ? `${fmtCompact(yrRow.viirsTotal)} VIIRS`
+          : `PM₂.₅ ${fmtMassExact(emYr.pm25)}`);
 
       svg.appendChild(svgEl('rect', {
         x: '14', y: '86', width: '136', height: '80', rx: '6',
@@ -378,10 +320,9 @@ export async function mount(el, ctx) {
       svg.appendChild(svgEl('text', { class: 'f3-sp-hub-s', x: hubX, y: hubY + 4 }, hubLine2));
       svg.appendChild(svgEl('text', { class: 'f3-sp-hub-s', x: hubX, y: hubY + 20 }, hubLine3));
 
-      // Zero line & bounds for diverging bar panel
       const zeroX = 528;
-      const negSpan = 72;   // down to -100%
-      const posSpan = 136;  // up to +250% (clipped nicely at 250)
+      const negSpan = 72;
+      const posSpan = 136;
       svg.appendChild(svgEl('line', { x1: zeroX, y1: '24', x2: zeroX, y2: '226', stroke: '#94A3B8', 'stroke-width': '1', 'stroke-dasharray': '3 3' }));
       svg.appendChild(svgEl('text', { class: 'f3-sp-hdr', x: zeroX, y: '238', 'text-anchor': 'middle' }, 'Median (0%)'));
       svg.appendChild(svgEl('text', { class: 'f3-sp-hdr', x: zeroX - negSpan, y: '238', 'text-anchor': 'middle' }, '-100%'));
@@ -408,7 +349,7 @@ export async function mount(el, ctx) {
         }
         inspector.innerHTML = `
           <span class="f3-insp-left">${escHtml(sp.full)} (${sp.label}) · ${escHtml(sp.role)}</span>
-          <span class="f3-insp-metrics"><strong>${fmtMass(val)}</strong> (${yr}) · Median <strong>${fmtMass(med)}</strong> · <strong>${dPct >= 0 ? '+' : ''}${dPct}%</strong> · Rank <strong>${rk}</strong></span>
+          <span class="f3-insp-metrics"><strong>${fmtMassExact(val)}</strong> (${yr}) · Median <strong>${fmtMassExact(med)}</strong> · <strong>${dPct >= 0 ? '+' : ''}${dPct}%</strong> · Rank <strong>${rk}</strong></span>
         `;
       }
 
@@ -423,7 +364,6 @@ export async function mount(el, ctx) {
         const baseW = Math.max(1.4, Math.min(6.2, 1.4 + ratio * 1.4)).toFixed(2);
         const selW = (Number(baseW) + 2.0).toFixed(2);
 
-        // Flow curve from combustion hub -> species node
         const flow = svgEl('path', {
           class: 'f3-sp-flow',
           d: `M 150 ${hubY} C 188 ${hubY}, 194 ${cy}, 228 ${cy}`,
@@ -433,13 +373,12 @@ export async function mount(el, ctx) {
         });
         svg.appendChild(flow);
 
-        const g = svgEl('g', { class: 'f3-sp-row', tabindex: '0', role: 'button', 'aria-label': `${sp.full}: ${fmtMass(val)}` });
+        const g = svgEl('g', { class: 'f3-sp-row', tabindex: '0', role: 'button', 'aria-label': `${sp.full}: ${fmtMassExact(val)}` });
         g.appendChild(svgEl('rect', { class: 'f3-sp-hit', x: '226', y: String(cy - 10.5), width: '502', height: '21', rx: '4' }));
         g.appendChild(svgEl('circle', { cx: '234', cy: String(cy), r: '4', fill: sp.color }));
         g.appendChild(svgEl('text', { class: 'f3-sp-lbl', x: '244', y: String(cy + 4) }, sp.label));
-        g.appendChild(svgEl('text', { class: 'f3-sp-val', x: '374', y: String(cy + 4), 'text-anchor': 'end' }, fmtMass(val)));
+        g.appendChild(svgEl('text', { class: 'f3-sp-val', x: '374', y: String(cy + 4), 'text-anchor': 'end' }, fmtMassExact(val)));
 
-        // Diverging bar vs median
         if (pct >= 0) {
           const bw = Math.max(3, Math.min(posSpan, (Math.min(pct, 250) / 250) * posSpan));
           g.appendChild(svgEl('rect', {
@@ -467,7 +406,6 @@ export async function mount(el, ctx) {
           }, `${pctRound}%`));
         }
 
-        // Rank column
         g.appendChild(svgEl('text', {
           class: 'f3-sp-val',
           x: '724',
@@ -528,7 +466,6 @@ export async function mount(el, ctx) {
         aVal: yrRow ? yrRow.highFrpCount : 0,
         bVal: Math.max(0, total - (yrRow ? yrRow.highFrpCount : 0)),
         colorA: '#DC2626',
-        colorB: '#F59E0B',
       },
       {
         label: 'Land Ownership Footprint',
@@ -537,7 +474,6 @@ export async function mount(el, ctx) {
         aVal: yrRow ? yrRow.inNationalForestCount : 0,
         bVal: yrRow ? yrRow.otherForestCount : 0,
         colorA: '#2B5FC7',
-        colorB: '#94A3B8',
       },
       {
         label: 'Diurnal Ignition Cycle',
@@ -546,7 +482,6 @@ export async function mount(el, ctx) {
         aVal: yrRow ? yrRow.dayCount : 0,
         bVal: yrRow ? yrRow.nightCount : 0,
         colorA: '#D55E00',
-        colorB: '#475569',
       },
       {
         label: 'MODIS Constellation Split',
@@ -555,7 +490,6 @@ export async function mount(el, ctx) {
         aVal: yrRow ? yrRow.aquaCount : 0,
         bVal: yrRow ? yrRow.terraCount : 0,
         colorA: '#009E73',
-        colorB: '#56B4E9',
       },
     ];
 
@@ -586,14 +520,6 @@ export async function mount(el, ctx) {
     stage.appendChild(svg);
   }
 
-  function fmtShortMass(tonnes) {
-    const v = Number(tonnes);
-    if (!Number.isFinite(v)) return '—';
-    if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)} Mt`;
-    if (v >= 1_000) return `${Math.round(v / 1_000)} kt`;
-    return `${Math.round(v)} t`;
-  }
-
   function renderRegionsView(scope, state) {
     const yr = Number(state.year);
     const { meta, summary, emissions } = scope;
@@ -607,7 +533,6 @@ export async function mount(el, ctx) {
     const grid = document.createElement('div');
     grid.className = 'f3-reg-grid';
 
-    // Left: Regions / States / Provinces / Oblasts
     const regCol = document.createElement('div');
     regCol.className = 'f3-reg-col';
     if (emYr && Array.isArray(emYr.topRegions) && emYr.topRegions.length) {
@@ -626,7 +551,7 @@ export async function mount(el, ctx) {
             return `<div class="f3-reg-item">
               <div class="f3-reg-line">
                 <span class="f3-reg-name" title="${escHtml(r.name)}">${escHtml(r.name)}</span>
-                <span class="f3-reg-num">${fmtShortMass(r.co2)} · ${fmtShortMass(r.pm25)} (${share}%)</span>
+                <span class="f3-reg-num">${fmtMass(r.co2)} · ${fmtMass(r.pm25)} (${share}%)</span>
               </div>
               <div class="f3-reg-track"><div class="f3-reg-fill" style="width:${w}%;background:#D55E00"></div></div>
             </div>`;
@@ -661,11 +586,10 @@ export async function mount(el, ctx) {
           <span class="f3-reg-col-title">Top Regions (${yr})</span>
           <span class="f3-reg-col-unit">CAMS starts 2003</span>
         </div>
-        <p class="f3-chain-note">Pixel-level CAMS GFAS regional emissions tracking begins in 2003. Scrub the timeline to 2003–2026 to compare regional emission rankings.</p>
+        <p class="f3-note">Pixel-level CAMS GFAS regional emissions tracking begins in 2003. Scrub the timeline to 2003–2026 to compare regional emission rankings.</p>
       `;
     }
 
-    // Right: Named Forests
     const forCol = document.createElement('div');
     forCol.className = 'f3-reg-col';
     if (emYr && Array.isArray(emYr.topForests) && emYr.topForests.length) {
@@ -682,7 +606,7 @@ export async function mount(el, ctx) {
             return `<div class="f3-reg-item">
               <div class="f3-reg-line">
                 <span class="f3-reg-name" title="${escHtml(f.name)}">${escHtml(f.name)}${f.region ? ` <span class="f3-reg-sub">· ${escHtml(f.region)}</span>` : ''}</span>
-                <span class="f3-reg-num">${fmtShortMass(f.co2)} · ${fmtShortMass(f.pm25)}</span>
+                <span class="f3-reg-num">${fmtMass(f.co2)} · ${fmtMass(f.pm25)}</span>
               </div>
               <div class="f3-reg-track"><div class="f3-reg-fill" style="width:${w}%;background:#7B3294"></div></div>
             </div>`;
@@ -717,105 +641,12 @@ export async function mount(el, ctx) {
           <span class="f3-reg-col-title">Top Forest Units (${yr})</span>
           <span class="f3-reg-col-unit">2003–2026</span>
         </div>
-        <p class="f3-chain-note">Forest-level carbon and smoke breakdowns are available across 2003–2026 from CAMS GFAS.</p>
+        <p class="f3-note">Forest-level carbon and smoke breakdowns are available across 2003–2026 from CAMS GFAS.</p>
       `;
     }
 
     grid.append(regCol, forCol);
     stage.appendChild(grid);
-  }
-
-  function renderChainView(scope, state) {
-    const { meta, stats, series } = scope;
-    const basin = meta.kind === 'basin';
-    const yr = Number(state.year);
-    subEl.textContent = `${yr} · Spearman rank correlations across Fire → Air → Water → Salmon`;
-    stage.innerHTML = '';
-
-    const svg = svgEl('svg', {
-      class: 'f3-svg',
-      viewBox: '0 0 720 228',
-      role: 'img',
-      'aria-label': 'Fire to air to water to fish chain with Spearman correlations',
-    });
-
-    const defs = svgEl('defs');
-    for (const g of CHAIN_NODES) {
-      const m = svgEl('marker', { id: `f3-arrow-${g}`, viewBox: '0 0 10 10', refX: '9', refY: '5', markerWidth: '7', markerHeight: '7', orient: 'auto-start-reverse' });
-      m.appendChild(svgEl('path', { d: 'M0 0L10 5L0 10z', fill: TOKEN[g] }));
-      defs.appendChild(m);
-    }
-    const grey = svgEl('marker', { id: 'f3-arrow-grey', viewBox: '0 0 10 10', refX: '9', refY: '5', markerWidth: '7', markerHeight: '7', orient: 'auto-start-reverse' });
-    grey.appendChild(svgEl('path', { d: 'M0 0L10 5L0 10z', fill: COLORS.rule }));
-    defs.appendChild(grey);
-    svg.appendChild(defs);
-
-    const varOf = { fire: 'fire_frp', air: 'aod', water: 'kd490', fish: meta.fishMetric };
-    const links = stats && Array.isArray(stats.links) ? stats.links : [];
-    const find = (a, b) => links.find((l) => l.from === a && l.to === b) || null;
-    const chain = [find('fire_frp', 'aod'), find('aod', 'kd490'), find('kd490', meta.fishMetric)];
-    const arc = find('fire_frp', meta.fishMetric);
-
-    const cx = [90, 270, 450, 630];
-    const cy = 84;
-    const R = 38;
-
-    const drawArrow = (d, l, target, labelXY) => {
-      const sig = l && l.rho !== null && l.p_adj !== null && l.p_adj < 0.05;
-      svg.appendChild(svgEl('path', {
-        class: 'f3-arrow',
-        d,
-        stroke: sig ? TOKEN[target] : COLORS.rule,
-        'stroke-dasharray': sig ? 'none' : '6 4',
-        'marker-end': `url(#f3-arrow-${sig ? target : 'grey'})`,
-      }));
-      if (l) {
-        const [l1, l2] = linkLabel(l, theme);
-        svg.appendChild(svgEl('text', { class: 'f3-label', x: labelXY[0], y: labelXY[1] }, l1));
-        svg.appendChild(svgEl('text', { class: 'f3-label', x: labelXY[0], y: labelXY[1] + 13 }, l2));
-      }
-    };
-
-    for (let i = 0; i < 3; i += 1) {
-      if (!basin && i > 0) continue;
-      drawArrow(`M${cx[i] + R + 4} ${cy} L${cx[i + 1] - R - 6} ${cy}`, chain[i], CHAIN_NODES[i + 1], [(cx[i] + cx[i + 1]) / 2, cy - R - 22]);
-    }
-    if (arc) {
-      const ay = cy + R + 28;
-      drawArrow(`M${cx[0]} ${ay} C ${cx[0] + 60} ${ay + 62}, ${cx[3] - 60} ${ay + 62}, ${cx[3]} ${ay + 2}`, arc, 'fish', [360, ay + 56]);
-    }
-
-    const focusGroup = VARS[state.focus] ? VARS[state.focus].group : null;
-    for (let i = 0; i < 4; i += 1) {
-      const g = CHAIN_NODES[i];
-      const varId = varOf[g];
-      const v = VARS[varId];
-      const unavailable = g === 'water' && !basin;
-      const isFocus = state.focus === varId || (focusGroup && focusGroup === g);
-      const node = svgEl('g', { class: `f3-node${unavailable ? ' is-missing' : ''}${isFocus ? ' is-focus' : ''}`, tabindex: '0', role: 'button' });
-      node.appendChild(svgEl('circle', { cx: cx[i], cy, r: R, stroke: TOKEN[g] }));
-      node.appendChild(svgEl('text', { class: 'f3-name', x: cx[i], y: cy - 4 }, v ? v.short : g));
-
-      if (unavailable) {
-        node.appendChild(svgEl('text', { class: 'f3-link', x: cx[i], y: cy + 12 }, 'basin only'));
-        const hint = svgEl('text', { class: 'f3-link', x: cx[i], y: cy + R + 17 }, 'Open case-study basin →');
-        hint.addEventListener('click', () => store.set({ view: 'basin' }));
-        svg.appendChild(hint);
-        node.addEventListener('click', () => store.set({ view: 'basin' }));
-      } else {
-        const value = data.annualValue(series, varId, yr, g === 'water' ? meta.primaryWaterBody : undefined);
-        const unitStr = theme.unitFor(varId, meta);
-        node.appendChild(svgEl('text', { class: 'f3-value', x: cx[i], y: cy + 13 }, theme.fmt(value, varId)));
-        node.appendChild(svgEl('text', { class: 'f3-unit', x: cx[i], y: cy + R + 16 }, `${yr} · ${unitStr}`));
-        node.addEventListener('click', () => store.set({ focus: varId }));
-      }
-      node.addEventListener('keydown', (ev) => {
-        if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); node.dispatchEvent(new Event('click')); }
-      });
-      svg.appendChild(node);
-    }
-
-    stage.appendChild(svg);
   }
 
   function renderDispatchAndCaption(scope, state) {
@@ -824,13 +655,6 @@ export async function mount(el, ctx) {
     const summaryInfo = getTimestampSummary(meta.path, yr, scope);
     dispatchKicker.textContent = summaryInfo.kicker;
     dispatchBody.textContent = summaryInfo.text;
-    if (summaryInfo.basinNote) {
-      dispatchBasin.style.display = '';
-      dispatchBasin.innerHTML = `<strong>${escHtml(summaryInfo.basinLabel)}:</strong> ${escHtml(summaryInfo.basinNote)}`;
-    } else {
-      dispatchBasin.style.display = 'none';
-      dispatchBasin.textContent = '';
-    }
 
     const [y0, y1] = meta.years || [2002, 2026];
     cap.innerHTML = `<strong>Fig. 3</strong> — ${escHtml(meta.name)} (${y0}–${y1}). Atmospheric species from Copernicus CAMS GFAS (2003–2026); MODIS/VIIRS detections cover 2002–2026. Click any pollutant or switch views above.`;
@@ -839,8 +663,7 @@ export async function mount(el, ctx) {
   function renderActive(state) {
     if (!current || !current.meta) return;
     if (activeTab === 'plume') renderPlumeView(current, state);
-    else if (activeTab === 'regions') renderRegionsView(current, state);
-    else renderChainView(current, state);
+    else renderRegionsView(current, state);
     renderDispatchAndCaption(current, state);
   }
 
@@ -857,7 +680,7 @@ export async function mount(el, ctx) {
   }
 
   store.subscribe((state, prev) => {
-    if (state.countryId !== prev.countryId || state.view !== prev.view) build(state);
+    if (state.countryId !== prev.countryId) build(state);
     else if (state.focus !== prev.focus || state.year !== prev.year) renderActive(state);
   });
 

@@ -4,15 +4,13 @@ import zlib from 'node:zlib';
 import { defineConfig } from 'vite';
 
 const SCOPE_PATTERNS = [
-  { scope: 'canada/fraser', match: ['canada/fraser', 'fraser'] },
-  { scope: 'usa/yukon', match: ['usa/yukon', 'yukon'] },
-  { scope: 'russia/amur', match: ['russia/amur', 'amur'] },
   { scope: 'canada', match: ['canada', 'can_'] },
   { scope: 'usa', match: ['usa', 'united_states', 'u.s.'] },
   { scope: 'russia', match: ['russia', 'rus_'] },
 ];
 
-function findZipCsvEntries(buf) {
+function readZipEntries(filePath, filterFn = () => true) {
+  const buf = fs.readFileSync(filePath);
   let eocd = -1;
   const minOffset = Math.max(0, buf.length - 65557);
   for (let i = buf.length - 22; i >= minOffset; i -= 1) {
@@ -36,18 +34,29 @@ function findZipCsvEntries(buf) {
     const cmLen = buf.readUInt16LE(ptr + 32);
     const localOffset = buf.readUInt32LE(ptr + 42);
     const name = buf.toString('utf8', ptr + 46, ptr + 46 + fnLen);
-    if (name.toLowerCase().endsWith('.csv') && !name.startsWith('__MACOSX/')) {
-      out.push({ name, method, compSize, uncompSize, localOffset });
+    if (!name.startsWith('__MACOSX/') && filterFn(name)) {
+      out.push({ name, method, compSize, uncompSize, localOffset, buf });
     }
     ptr += 46 + fnLen + exLen + cmLen;
   }
   return out;
 }
 
+function inflateZipEntry(entry, filePath) {
+  const { buf, localOffset, compSize, method } = entry;
+  if (buf.readUInt32LE(localOffset) !== 0x04034b50) return null;
+  const fnLen = buf.readUInt16LE(localOffset + 26);
+  const exLen = buf.readUInt16LE(localOffset + 28);
+  const start = localOffset + 30 + fnLen + exLen;
+  const slice = buf.subarray(start, start + compSize);
+  if (method === 0) return slice;
+  if (method === 8) return zlib.inflateRawSync(slice);
+  throw new Error(`Unsupported zip compression method ${method} in ${filePath}`);
+}
+
 function zipHasCsvDataRows(filePath) {
   try {
-    const buf = fs.readFileSync(filePath);
-    const entries = findZipCsvEntries(buf);
+    const entries = readZipEntries(filePath, (n) => n.toLowerCase().endsWith('.csv'));
     return entries.some((e) => e.uncompSize > 120);
   } catch {
     return false;
@@ -55,18 +64,97 @@ function zipHasCsvDataRows(filePath) {
 }
 
 function readZipFirstCsvBuffer(filePath) {
-  const buf = fs.readFileSync(filePath);
-  const entries = findZipCsvEntries(buf);
+  const entries = readZipEntries(filePath, (n) => n.toLowerCase().endsWith('.csv'));
   if (!entries.length) return null;
-  const e = entries[0];
-  if (buf.readUInt32LE(e.localOffset) !== 0x04034b50) return null;
-  const fnLen = buf.readUInt16LE(e.localOffset + 26);
-  const exLen = buf.readUInt16LE(e.localOffset + 28);
-  const start = e.localOffset + 30 + fnLen + exLen;
-  const slice = buf.subarray(start, start + e.compSize);
-  if (e.method === 0) return slice;
-  if (e.method === 8) return zlib.inflateRawSync(slice);
-  throw new Error(`Unsupported zip compression method ${e.method} in ${filePath}`);
+  return inflateZipEntry(entries[0], filePath);
+}
+
+function decodeXmlEntities(s) {
+  return String(s || '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'");
+}
+
+function readXlsxSheets(filePath) {
+  const entries = readZipEntries(filePath);
+  const byName = new Map();
+  for (const e of entries) {
+    const raw = inflateZipEntry(e, filePath);
+    if (raw) byName.set(e.name, raw.toString('utf8'));
+  }
+
+  const sharedStrings = [];
+  const sstXml = byName.get('xl/sharedStrings.xml');
+  if (sstXml) {
+    const siRe = /<si\b[^>]*>([\s\S]*?)<\/si>/g;
+    let m;
+    while ((m = siRe.exec(sstXml))) {
+      const parts = [];
+      const tRe = /<t\b[^>]*>([\s\S]*?)<\/t>/g;
+      let tm;
+      while ((tm = tRe.exec(m[1]))) parts.push(decodeXmlEntities(tm[1]));
+      sharedStrings.push(parts.join(''));
+    }
+  }
+
+  const rels = new Map();
+  const relsXml = byName.get('xl/_rels/workbook.xml.rels') || '';
+  const relRe = /<Relationship\b([^>]*)\/>/g;
+  let rm;
+  while ((rm = relRe.exec(relsXml))) {
+    const id = (rm[1].match(/\bId="([^"]+)"/) || [])[1];
+    const target = (rm[1].match(/\bTarget="([^"]+)"/) || [])[1];
+    if (id && target) {
+      const normTarget = target.replace(/^\/+/, '');
+      rels.set(id, normTarget.startsWith('xl/') ? normTarget : `xl/${normTarget}`);
+    }
+  }
+
+  const parseSheetRows = (xml) => {
+    const rows = [];
+    const rowRe = /<row\b[^>]*>([\s\S]*?)<\/row>/g;
+    let rMatch;
+    while ((rMatch = rowRe.exec(xml))) {
+      const cells = [];
+      const cellRe = /<c\b([^>]*)>([\s\S]*?)<\/c>/g;
+      let cMatch;
+      while ((cMatch = cellRe.exec(rMatch[1]))) {
+        const attrs = cMatch[1];
+        const inner = cMatch[2];
+        const ref = (attrs.match(/\br="([A-Z]+)\d+"/) || [])[1] || '';
+        const type = (attrs.match(/\bt="([^"]+)"/) || [])[1] || '';
+        let colIdx = 0;
+        for (let i = 0; i < ref.length; i += 1) colIdx = colIdx * 26 + (ref.charCodeAt(i) - 64);
+        let val = '';
+        const inlineM = inner.match(/<is>[\s\S]*?<t\b[^>]*>([\s\S]*?)<\/t>[\s\S]*?<\/is>/);
+        const valM = inner.match(/<v>([\s\S]*?)<\/v>/);
+        if (inlineM) val = decodeXmlEntities(inlineM[1]);
+        else if (type === 's' && valM) val = sharedStrings[Number(valM[1])] ?? '';
+        else if (valM) val = decodeXmlEntities(valM[1]);
+        const targetIdx = colIdx > 0 ? colIdx - 1 : cells.length;
+        while (cells.length < targetIdx) cells.push('');
+        cells[targetIdx] = val.trim();
+      }
+      if (cells.some(Boolean)) rows.push(cells);
+    }
+    return rows;
+  };
+
+  const sheets = new Map();
+  const wbXml = byName.get('xl/workbook.xml') || '';
+  const shRe = /<sheet\b([^>]*)\/>/g;
+  let sm;
+  while ((sm = shRe.exec(wbXml))) {
+    const name = decodeXmlEntities((sm[1].match(/\bname="([^"]+)"/) || [])[1] || '');
+    const rId = (sm[1].match(/\br:id="([^"]+)"/) || [])[1] || '';
+    const sheetPath = rels.get(rId);
+    const xml = sheetPath ? byName.get(sheetPath) : null;
+    if (name && xml) sheets.set(name.toLowerCase(), parseSheetRows(xml));
+  }
+  return sheets;
 }
 
 function csvHasDataRows(filePath) {
@@ -101,7 +189,7 @@ function detectScope(relPath, fileName) {
 export function buildDataManifest(dataRoot = path.resolve('data')) {
   const scopes = {};
   const ensure = (s) => {
-      if (!scopes[s]) {
+    if (!scopes[s]) {
       scopes[s] = {
         fires: [],
         air: null,
@@ -109,6 +197,7 @@ export function buildDataManifest(dataRoot = path.resolve('data')) {
         summaryByYear: null,
         summaryByForest: null,
         summaryByForestYear: null,
+        summaryXlsx: null,
         viirsOutageDays: null,
         pre2012SmallFires: null,
         emissionsByYear: null,
@@ -125,7 +214,7 @@ export function buildDataManifest(dataRoot = path.resolve('data')) {
     for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, ent.name);
       if (ent.isDirectory()) {
-        if (ent.name === 'fire-grid') continue;
+        if (ent.name === 'fire-grid' || ent.name === 'air-grid') continue;
         walk(full);
         continue;
       }
@@ -133,13 +222,22 @@ export function buildDataManifest(dataRoot = path.resolve('data')) {
       const lower = ent.name.toLowerCase();
       const isCsv = lower.endsWith('.csv');
       const isZip = lower.endsWith('.zip');
-      if (!isCsv && !isZip) continue;
-      if (isCsv ? !csvHasDataRows(full) : !zipHasCsvDataRows(full)) continue;
+      const isXlsx = lower.endsWith('.xlsx');
+      if (!isCsv && !isZip && !isXlsx) continue;
 
       const rel = path.relative(dataRoot, full).replace(/\\/g, '/');
       const relLower = rel.toLowerCase();
       const scope = detectScope(rel, ent.name);
       if (!scope) continue;
+
+      if (isXlsx) {
+        if (lower.includes('summary')) {
+          ensure(scope).summaryXlsx = `./data/${rel}`;
+        }
+        continue;
+      }
+
+      if (isCsv ? !csvHasDataRows(full) : !zipHasCsvDataRows(full)) continue;
 
       const url = `./data/${rel}`;
       const bucket = ensure(scope);
@@ -165,7 +263,8 @@ export function buildDataManifest(dataRoot = path.resolve('data')) {
       } else if (lower.includes('emissions') || relLower.includes('fire_emissions')) {
         const yearMatch = ent.name.match(/(?:^|[_-])((?:19|20)\d{2})(?:[_.-]|$)/);
         const year = yearMatch ? Number(yearMatch[1]) : null;
-        bucket.emissionsByYearFiles.push({ url, year, file: ent.name });
+        const gridUrl = year ? `./data/air-grid/${scope}-${year}.json` : undefined;
+        bucket.emissionsByYearFiles.push({ url, year, file: ent.name, ...(gridUrl ? { gridUrl } : {}) });
       } else if (lower.includes('summary')) {
         continue;
       } else if (lower === 'air.csv' || /(?:^|\/)air(?:\/|_)/.test(relLower)) {
@@ -174,7 +273,7 @@ export function buildDataManifest(dataRoot = path.resolve('data')) {
         const yearMatch = ent.name.match(/(?:^|[_-])((?:19|20)\d{2})(?:[_.-]|$)/);
         const year = yearMatch ? Number(yearMatch[1]) : null;
         const sensor = lower.includes('viirs') ? 'viirs' : lower.includes('modis') ? 'modis' : 'other';
-        const gridUrl = isZip && year ? `./data/fire-grid/${scope}-${year}.json` : undefined;
+        const gridUrl = year ? `./data/fire-grid/${scope}-${year}.json` : undefined;
         bucket.fires.push({ url, year, sensor, file: ent.name, ...(isZip ? { format: 'zip' } : {}), ...(gridUrl ? { gridUrl } : {}) });
       }
     }
@@ -340,18 +439,19 @@ function finalizeAccumulator(acc) {
 
 export function buildScopeIndex(dataRoot = path.resolve('data'), options = {}) {
   const manifest = buildDataManifest(dataRoot);
-  let regions = null;
-  try {
-    regions = JSON.parse(fs.readFileSync(path.join(dataRoot, 'regions.json'), 'utf8'));
-  } catch {
-    regions = null;
+  const writeGrids = Boolean(options && options.writeGrids);
+  const scopes = {};
+
+  if (writeGrids) {
+    const fireGridDir = path.join(dataRoot, 'fire-grid');
+    if (fs.existsSync(fireGridDir)) {
+      for (const f of fs.readdirSync(fireGridDir)) {
+        if (/-(fraser|yukon|amur)-/i.test(f)) fs.unlinkSync(path.join(fireGridDir, f));
+      }
+    }
   }
 
-  const scopes = {};
-  const countryList = (regions && Array.isArray(regions.countries)) ? regions.countries : [];
-
   for (const [scopeKey, entry] of Object.entries(manifest.scopes)) {
-    if (scopeKey.includes('/')) continue;
     const fires = Array.isArray(entry.fires) ? entry.fires : [];
     const byYearEntries = new Map();
     for (const f of fires) {
@@ -367,13 +467,7 @@ export function buildScopeIndex(dataRoot = path.resolve('data'), options = {}) {
       else pickedFiles.push(...list);
     }
 
-    const countryMeta = countryList.find((c) => c.id === scopeKey);
-    const basin = countryMeta && countryMeta.basin ? countryMeta.basin : null;
-    const basinBbox = basin && Array.isArray(basin.bbox) ? basin.bbox : null;
-    const basinKey = basin && basin.id ? `${scopeKey}/${basin.id}` : null;
-
     const countryAcc = createFireAccumulator();
-    const basinAcc = basinBbox ? createFireAccumulator() : null;
 
     const ingestRow = (acc, yr, ym, frp, frpClass, inNf, sat, dn, stateName, forestName, sensorLabel) => {
       if (sensorLabel === 'VIIRS') {
@@ -421,7 +515,6 @@ export function buildScopeIndex(dataRoot = path.resolve('data'), options = {}) {
       }
     };
 
-    const writeGrids = Boolean(options && options.writeGrids);
     const addGridPoint = (gridMap, gridDeg, lat, lon, frp, isHighFrp, dateStr, stateName, forestName) => {
       const snapLat = Math.floor(lat / gridDeg) * gridDeg + gridDeg / 2;
       const snapLon = Math.floor(lon / gridDeg) * gridDeg + gridDeg / 2;
@@ -460,9 +553,8 @@ export function buildScopeIndex(dataRoot = path.resolve('data'), options = {}) {
       const sensorLabel = item.sensor === 'viirs' ? 'VIIRS' : item.sensor === 'modis' ? 'MODIS' : null;
       const buf = item.format === 'zip' ? readZipFirstCsvBuffer(full) : fs.readFileSync(full);
       if (!buf) continue;
-      const buildGrid = writeGrids && item.format === 'zip' && Number.isInteger(item.year);
+      const buildGrid = writeGrids && Number.isInteger(item.year);
       const cGrid = buildGrid ? new Map() : null;
-      const bGrid = buildGrid && basinBbox ? new Map() : null;
 
       parseCsvBufferSync(buf, (cells, idx) => {
         const col = (names) => {
@@ -514,22 +606,18 @@ export function buildScopeIndex(dataRoot = path.resolve('data'), options = {}) {
 
         ingestRow(countryAcc, yr, ym, frp, frpClass, inNf, sat, dn, stateName, forestName, sensorLabel);
         if (cGrid) addGridPoint(cGrid, 0.2, lat, lon, frp, frpClass === 'high', dateStr, stateName, forestName);
-        if (basinAcc && lon >= basinBbox[0] && lon <= basinBbox[2] && lat >= basinBbox[1] && lat <= basinBbox[3]) {
-          ingestRow(basinAcc, yr, ym, frp, frpClass, inNf, sat, dn, stateName, forestName, sensorLabel);
-          if (bGrid) addGridPoint(bGrid, 0.05, lat, lon, frp, frpClass === 'high', dateStr, stateName, forestName);
-        }
       });
 
       if (cGrid && cGrid.size) {
         const gridDir = path.join(dataRoot, 'fire-grid');
         fs.mkdirSync(gridDir, { recursive: true });
-        const toFc = (scopeName, gridDeg, map) => ({
+        const fc = {
           type: 'FeatureCollection',
-          scope: scopeName,
+          scope: scopeKey,
           year: item.year,
-          gridDeg,
+          gridDeg: 0.2,
           summary: { sensor: sensorLabel },
-          features: Array.from(map.values()).map((it) => ({
+          features: Array.from(cGrid.values()).map((it) => ({
             type: 'Feature',
             geometry: { type: 'Point', coordinates: [it.lon, it.lat] },
             properties: {
@@ -543,11 +631,8 @@ export function buildScopeIndex(dataRoot = path.resolve('data'), options = {}) {
               forest: it.forest || undefined,
             },
           })),
-        });
-        fs.writeFileSync(path.join(gridDir, `${scopeKey}-${item.year}.json`), JSON.stringify(toFc(scopeKey, 0.2, cGrid)));
-        if (bGrid && basinKey) {
-          fs.writeFileSync(path.join(gridDir, `${scopeKey}-${basin.id}-${item.year}.json`), JSON.stringify(toFc(basinKey, 0.05, bGrid)));
-        }
+        };
+        fs.writeFileSync(path.join(gridDir, `${scopeKey}-${item.year}.json`), JSON.stringify(fc));
       }
     }
 
@@ -594,7 +679,7 @@ export function buildScopeIndex(dataRoot = path.resolve('data'), options = {}) {
           if (!name) return;
           allForests.push({
             name,
-            state: getS('state'),
+            state: getS('state') || getS('province'),
             modis: getN('modis'),
             viirs: getN('viirs'),
             total: getN('total'),
@@ -650,13 +735,78 @@ export function buildScopeIndex(dataRoot = path.resolve('data'), options = {}) {
       }
     }
 
-    const SPECIES = ['bc', 'c', 'ch4', 'co2', 'co', 'nmhc', 'nox', 'oc', 'pm25', 'so2', 'tc'];
-    const BASIN_REGION_MATCH = {
-      'usa/yukon': ['Alaska'],
-      'canada/fraser': ['British Columbia'],
-      'russia/amur': ['Amur Oblast', 'Khabarovsk Krai', 'Zabaykalsky Krai'],
-    };
+    // Parse workbook summary (.xlsx) when per-table CSV summaries are not separately provided (e.g. Canada 2002-2026)
+    if (entry.summaryXlsx) {
+      const fullXlsx = resolveFile(dataRoot, entry.summaryXlsx);
+      if (fs.existsSync(fullXlsx)) {
+        const sheets = readXlsxSheets(fullXlsx);
+        if (!summaryByYear.length && sheets.has('by year')) {
+          const rows = sheets.get('by year');
+          for (let i = 1; i < rows.length; i += 1) {
+            const r = rows[i];
+            const yr = Number(r[0]);
+            if (!Number.isInteger(yr)) continue;
+            summaryByYear.push({
+              year: yr,
+              modisHighFrp: Number(r[1]) || 0,
+              modisLowFrp: Number(r[2]) || 0,
+              modisTotal: Number(r[3]) || 0,
+              viirsHighFrp: Number(r[4]) || 0,
+              viirsLowFrp: Number(r[5]) || 0,
+              viirsTotal: Number(r[6]) || 0,
+              allTotal: Number(r[7]) || 0,
+            });
+          }
+        }
+        if (!allForests.length && sheets.has('by forest')) {
+          const rows = sheets.get('by forest');
+          for (let i = 1; i < rows.length; i += 1) {
+            const r = rows[i];
+            const name = String(r[0] || '').trim();
+            if (!name || name === 'Total') continue;
+            allForests.push({
+              name,
+              state: String(r[1] || '').trim(),
+              modis: Number(r[2]) || 0,
+              viirs: Number(r[3]) || 0,
+              total: Number(r[4]) || 0,
+              maxFrpMw: Number(r[5]) || 0,
+            });
+          }
+        }
+        if (!Object.keys(forestYearsByYear).length && sheets.has('by forest and year')) {
+          const rows = sheets.get('by forest and year');
+          for (let i = 1; i < rows.length; i += 1) {
+            const r = rows[i];
+            const name = String(r[0] || '').trim();
+            const yr = Number(r[1]);
+            if (!name || !Number.isInteger(yr)) continue;
+            const modis = Number(r[2]) || 0;
+            const viirs = Number(r[3]) || 0;
+            if (!forestYearsByYear[yr]) forestYearsByYear[yr] = [];
+            forestYearsByYear[yr].push([name, modis, viirs]);
+          }
+          for (const list of Object.values(forestYearsByYear)) {
+            list.sort((a, b) => (b[1] + b[2]) - (a[1] + a[2]));
+          }
+        }
+        if (!viirsOutageDates.length && sheets.has('viirs outage days')) {
+          const rows = sheets.get('viirs outage days');
+          for (let i = 1; i < rows.length; i += 1) {
+            const dt = String(rows[i][0] || '').trim();
+            if (!/^\d{4}-\d{2}-\d{2}/.test(dt)) continue;
+            viirsOutageDates.push(dt);
+            const yr = Number(dt.slice(0, 4));
+            if (Number.isInteger(yr)) {
+              if (!viirsOutageByYear[yr]) viirsOutageByYear[yr] = [];
+              viirsOutageByYear[yr].push(dt);
+            }
+          }
+        }
+      }
+    }
 
+    const SPECIES = ['bc', 'c', 'ch4', 'co2', 'co', 'nmhc', 'nox', 'oc', 'pm25', 'so2', 'tc'];
     const emByYear = {};
     const emByRegionYear = new Map();
     const emByForestYear = new Map();
@@ -727,45 +877,102 @@ export function buildScopeIndex(dataRoot = path.resolve('data'), options = {}) {
       }
     }
 
-    const finalizeEmissions = (yrMap, filterRegions = null) => {
+    // Aggregate pixel-level spatial CAMS GFAS emissions CSVs into air-grid JSONs + monthly CO2/PM2.5 traces
+    const emMonthlyCo2 = new Map();
+    const emMonthlyPm25 = new Map();
+    for (const emItem of entry.emissionsByYearFiles || []) {
+      const full = resolveFile(dataRoot, emItem.url);
+      if (!fs.existsSync(full)) continue;
+      const aGrid = writeGrids && Number.isInteger(emItem.year) ? new Map() : null;
+      const deg = 0.5;
+      parseCsvSync(full, (cells, idx) => {
+        const iDate = idx.get('date');
+        const iLat = idx.get('latitude');
+        const iLon = idx.get('longitude');
+        const iReg = idx.get('region');
+        const iFor = idx.get('forest_name');
+        const iCo2 = idx.get('co2_tonnes');
+        const iPm = idx.get('pm25_tonnes');
+        const iBc = idx.get('bc_tonnes');
+        const dt = iDate !== undefined ? (cells[iDate] || '').trim() : '';
+        const co2 = iCo2 !== undefined ? (Number(cells[iCo2]) || 0) : 0;
+        const pm25 = iPm !== undefined ? (Number(cells[iPm]) || 0) : 0;
+        const bc = iBc !== undefined ? (Number(cells[iBc]) || 0) : 0;
+        if (dt.length >= 7 && dt[4] === '-') {
+          const ym = dt.slice(0, 7);
+          emMonthlyCo2.set(ym, (emMonthlyCo2.get(ym) || 0) + co2);
+          emMonthlyPm25.set(ym, (emMonthlyPm25.get(ym) || 0) + pm25);
+        }
+        if (aGrid && iLat !== undefined && iLon !== undefined) {
+          const lat = Number(cells[iLat]);
+          const lon = Number(cells[iLon]);
+          if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+          const snapLat = Math.floor(lat / deg) * deg + deg / 2;
+          const snapLon = Math.floor(lon / deg) * deg + deg / 2;
+          const key = `${snapLon.toFixed(2)},${snapLat.toFixed(2)}`;
+          const reg = iReg !== undefined ? (cells[iReg] || '').trim() : '';
+          const forest = iFor !== undefined ? (cells[iFor] || '').trim() : '';
+          const cur = aGrid.get(key);
+          if (!cur) {
+            aGrid.set(key, { lon: snapLon, lat: snapLat, co2, pm25, bc, maxPm: pm25, region: reg, forest });
+          } else {
+            cur.co2 += co2;
+            cur.pm25 += pm25;
+            cur.bc += bc;
+            if (pm25 > cur.maxPm) {
+              cur.maxPm = pm25;
+              if (reg) cur.region = reg;
+              if (forest) cur.forest = forest;
+            }
+          }
+        }
+      });
+      if (aGrid && aGrid.size) {
+        const airDir = path.join(dataRoot, 'air-grid');
+        fs.mkdirSync(airDir, { recursive: true });
+        const fc = {
+          type: 'FeatureCollection',
+          scope: scopeKey,
+          year: emItem.year,
+          gridDeg: deg,
+          features: Array.from(aGrid.values()).map((it) => ({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [it.lon, it.lat] },
+            properties: {
+              co2: Number(it.co2.toFixed(1)),
+              pm25: Number(it.pm25.toFixed(1)),
+              bc: Number(it.bc.toFixed(2)),
+              intensity: Number(Math.min(1, Math.log10(1 + it.pm25 / 50) / 3.6).toFixed(3)),
+              region: it.region || undefined,
+              forest: it.forest || undefined,
+            },
+          })),
+        };
+        fs.writeFileSync(path.join(airDir, `${scopeKey}-${emItem.year}.json`), JSON.stringify(fc));
+      }
+    }
+
+    const finalizeEmissions = (yrMap) => {
       const years = {};
       const yrs = Object.keys(yrMap).map(Number).sort((a, b) => a - b);
       if (!yrs.length && !emByRegionYear.size) return null;
       const targetYrs = yrs.length ? yrs : Array.from(emByRegionYear.keys()).sort((a, b) => a - b);
 
       for (const yr of targetYrs) {
-        const rawRegs = (emByRegionYear.get(yr) || [])
-          .filter((r) => !filterRegions || filterRegions.includes(r.name))
-          .slice()
-          .sort((a, b) => b.co2 - a.co2);
-
+        const rawRegs = (emByRegionYear.get(yr) || []).slice().sort((a, b) => b.co2 - a.co2);
         let base = yrMap[yr] ? { ...yrMap[yr] } : null;
-        if (filterRegions) {
-          base = {};
-          for (const sp of SPECIES) {
-            base[sp] = Number(rawRegs.reduce((s, r) => s + (r[sp] || 0), 0).toFixed(1));
-          }
-        } else if (!base && rawRegs.length) {
+        if (!base && rawRegs.length) {
           base = {};
           for (const sp of SPECIES) {
             base[sp] = Number(rawRegs.reduce((s, r) => s + (r[sp] || 0), 0).toFixed(1));
           }
         }
         if (!base) continue;
-
-        const rawFors = (emByForestYear.get(yr) || [])
-          .filter((f) => !filterRegions || filterRegions.includes(f.region))
-          .slice()
-          .sort((a, b) => b.co2 - a.co2);
-
+        const rawFors = (emByForestYear.get(yr) || []).slice().sort((a, b) => b.co2 - a.co2);
         years[yr] = {
           ...base,
           topRegions: rawRegs.slice(0, 8).map((r) => ({
-            name: r.name,
-            co2: r.co2,
-            pm25: r.pm25,
-            bc: r.bc,
-            co: r.co,
+            name: r.name, co2: r.co2, pm25: r.pm25, bc: r.bc, co: r.co,
           })),
           topForests: rawFors.slice(0, 8),
         };
@@ -786,18 +993,69 @@ export function buildScopeIndex(dataRoot = path.resolve('data'), options = {}) {
         });
       }
 
+      const monthlyCo2 = Array.from(emMonthlyCo2.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(([k, v]) => [k, Number(v.toFixed(1))]);
+      const monthlyPm25 = Array.from(emMonthlyPm25.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(([k, v]) => [k, Number(v.toFixed(1))]);
+
       return {
         source: 'Copernicus CAMS GFAS via GWIS',
         yearCount: validYrs.length,
         years,
         medians,
         ranksByYear,
-        filterRegions: filterRegions || null,
+        monthlyCo2,
+        monthlyPm25,
       };
     };
 
-    const countryEmissions = finalizeEmissions(emByYear, null);
+    const countryEmissions = finalizeEmissions(emByYear);
     const finalizedCountry = finalizeAccumulator(countryAcc);
+
+    // Ensure MODIS & VIIRS summary counts (e.g. Canada 2002-2026 XLSX) backfill series & year details when point CSVs are absent for some years
+    if (summaryByYear.length) {
+      const modisMap = new Map((finalizedCountry.series.fire_count?.annual) || []);
+      const viirsMap = new Map((finalizedCountry.series.viirs_count?.annual) || []);
+      for (const row of summaryByYear) {
+        if (row.modisTotal > 0 && !modisMap.has(row.year)) modisMap.set(row.year, row.modisTotal);
+        if (row.viirsTotal > 0 && !viirsMap.has(row.year)) viirsMap.set(row.year, row.viirsTotal);
+        if (!finalizedCountry.years[row.year] && (row.modisTotal > 0 || row.viirsTotal > 0 || row.allTotal > 0)) {
+          const fyRows = forestYearsByYear[row.year] || [];
+          finalizedCountry.years[row.year] = {
+            summaryOnly: true,
+            detections: row.modisTotal || row.viirsTotal || row.allTotal,
+            modisTotal: row.modisTotal,
+            viirsTotal: row.viirsTotal,
+            allTotal: row.allTotal,
+            totalFrpMw: 0,
+            maxFrpMw: 0,
+            meanFrpMw: 0,
+            highFrpCount: row.modisHighFrp || 0,
+            lowFrpCount: row.modisLowFrp || 0,
+            sensor: row.viirsTotal > 0 ? (row.modisTotal > 0 ? 'MODIS+VIIRS' : 'VIIRS') : 'MODIS',
+            topStates: [],
+            topForests: fyRows.slice(0, 15).map(([name, m, v]) => ({
+              name,
+              count: m + v,
+              frpMw: 0,
+              inNationalForest: !name.startsWith('Other forest land'),
+            })),
+            topNationalForests: [],
+          };
+        }
+      }
+      if (modisMap.size) {
+        finalizedCountry.series.fire_count = {
+          annual: Array.from(modisMap.entries()).sort((a, b) => a[0] - b[0]),
+          monthly: finalizedCountry.series.fire_count?.monthly || [],
+        };
+      }
+      if (viirsMap.size) {
+        finalizedCountry.series.viirs_count = {
+          annual: Array.from(viirsMap.entries()).sort((a, b) => a[0] - b[0]),
+          monthly: finalizedCountry.series.viirs_count?.monthly || [],
+        };
+      }
+    }
+
     scopes[scopeKey] = {
       ...finalizedCountry,
       summaryByYear,
@@ -807,13 +1065,6 @@ export function buildScopeIndex(dataRoot = path.resolve('data'), options = {}) {
       viirsOutageByYear,
       emissions: countryEmissions,
     };
-    if (basinAcc && basinKey) {
-      const basinFilter = BASIN_REGION_MATCH[basinKey] || null;
-      scopes[basinKey] = {
-        ...finalizeAccumulator(basinAcc),
-        emissions: basinFilter ? finalizeEmissions({}, basinFilter) : countryEmissions,
-      };
-    }
   }
 
   return { generatedAt: new Date().toISOString(), scopes };

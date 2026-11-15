@@ -27,24 +27,15 @@ const STYLE = `
 .f2-verdict { font-weight: 700; color: var(--c-ink); }
 .f2-verdict.is-muted { font-weight: 500; color: var(--c-muted); }
 .f2-cap { font-size: 12.5px; font-style: italic; color: var(--c-muted); margin: 4px 0 0; }
-.f2-link { color: var(--c-link); font-weight: 600; }
 `;
-const ORDER = ['kd490', 'aod', 'chlor_a', 'fire_frp', 'fire_count'];
-
-function injectStyle() {
-  if (document.querySelector('style[data-module="f2"]')) return;
-  const s = document.createElement('style');
-  s.dataset.module = 'f2';
-  s.textContent = STYLE;
-  document.head.appendChild(s);
-}
+const ORDER = ['fire_frp', 'co2_em', 'pm25_em', 'fire_count', 'viirs_count'];
 
 const span = (years) => (years.length > 1 ? `${years[0]}–${years[years.length - 1]}` : String(years[0]));
 
 export async function mount(el, ctx) {
-  injectStyle();
   const { store, data, theme } = ctx;
-  const { COLORS, VARS } = theme;
+  const { COLORS, VARS, injectCss, fmtCompactTick } = theme;
+  injectCss('f2', STYLE);
   el.innerHTML = '';
   const root = document.createElement('div');
   root.className = 'f2-root';
@@ -72,9 +63,9 @@ export async function mount(el, ctx) {
   let lastWidth = 0;
 
   function pickEntries(state) {
-    const { meta, stats: st } = current;
+    const { stats: st } = current;
     const all = st && Array.isArray(st.beforeAfter) ? st.beforeAfter : [];
-    const forVar = (v) => all.filter((e) => e.variable === v && (data.isWaterVar(v) ? e.waterBody === meta.primaryWaterBody : true));
+    const forVar = (v) => all.filter((e) => e.variable === v);
     let entries = forVar(state.focus);
     for (const v of ORDER) if (!entries.length) entries = forVar(v);
     if (!entries.length && all.length) entries = forVar(all[0].variable);
@@ -85,24 +76,6 @@ export async function mount(el, ctx) {
     if (!current) return;
     const { meta, series } = current;
     const width = Math.max(260, plotBox.clientWidth || el.clientWidth - 40 || 420);
-
-    if (data.isWaterVar(state.focus) && meta.kind !== 'basin') {
-      const key = `${meta.path}|water-gate`;
-      if (!force && key === lastRenderKey) return;
-      lastRenderKey = key;
-      plotBox.innerHTML = '';
-      stats.innerHTML = '';
-      chips.innerHTML = '';
-      cap.textContent = '';
-      const p = theme.placeholder(plotBox, 'Water is measured in the case-study basin. ');
-      const a = document.createElement('a');
-      a.href = '#';
-      a.className = 'f2-link';
-      a.textContent = 'Open the case study →';
-      a.addEventListener('click', (ev) => { ev.preventDefault(); store.set({ view: 'basin' }); });
-      p.appendChild(a);
-      return;
-    }
 
     const entries = pickEntries(state);
     if (!entries.length) {
@@ -139,12 +112,11 @@ export async function mount(el, ctx) {
     }
 
     const v = VARS[entry.variable];
-    const unit = theme.unitFor(entry.variable, meta);
-    const wb = data.isWaterVar(entry.variable) ? entry.waterBody : undefined;
+    const unit = theme.unitFor(entry.variable);
     const during = entry.after_years.length === 1 && entry.after_years[0] === entry.event;
     const beforeLabel = `Before (${span(entry.before_years)})`;
     const afterLabel = `${during ? 'During' : 'After'} (${span(entry.after_years)})`;
-    const monthly = data.monthlySeries(series, entry.variable, wb);
+    const monthly = data.monthlySeries(series, entry.variable);
     const dots = [];
     const pick = (years, cx, side) => {
       let i = 0;
@@ -163,11 +135,6 @@ export async function mount(el, ctx) {
       { x1: 1.2, x2: 1.8, y: entry.mean_after, side: 'after' },
     ];
     const color = (d) => (d.side === 'after' ? v.color : COLORS.muted);
-    const fmtCompactTick = (val) => {
-      if (Math.abs(val) >= 1_000_000) return `${(val / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
-      if (Math.abs(val) >= 10_000) return `${Math.round(val / 1_000)}k`;
-      return String(val);
-    };
     const svg = Plot.plot({
       width, height: 248, marginLeft: 56, marginRight: 20, marginTop: 30, marginBottom: 28,
       style: { fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: '11px', color: COLORS.muted, background: 'transparent', overflow: 'visible' },
@@ -211,7 +178,7 @@ export async function mount(el, ctx) {
     }).observe(el);
   }
   store.subscribe((state, prev) => {
-    if (state.countryId !== prev.countryId || state.view !== prev.view) build(state);
+    if (state.countryId !== prev.countryId) build(state);
     else if (state.focus !== prev.focus || state.year !== prev.year) draw(state);
   });
   await build(store.get());

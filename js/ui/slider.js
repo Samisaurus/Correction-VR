@@ -78,20 +78,12 @@ const PAUSE_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 2.
 const STEP_MS = 800;
 const cleanups = new WeakMap();
 
-function injectStyle() {
-  if (document.querySelector('style[data-module="sld"]')) return;
-  const style = document.createElement('style');
-  style.dataset.module = 'sld';
-  style.textContent = STYLE;
-  document.head.appendChild(style);
-}
-
 const pos = (year, min, max) => `calc(8px + (100% - 16px) * ${max > min ? (year - min) / (max - min) : 0})`;
 
 export async function mount(el, ctx) {
-  injectStyle();
   if (cleanups.has(el)) cleanups.get(el)();
   const { store, data, theme } = ctx;
+  theme.injectCss('sld', STYLE);
   const regions = await data.getRegions();
   if (!regions || !Array.isArray(regions.years)) {
     theme.placeholder(el);
@@ -217,7 +209,7 @@ export async function mount(el, ctx) {
   }
 
   const unsubscribe = store.subscribe((state, prev) => {
-    if (state.countryId !== prev.countryId || state.view !== prev.view) {
+    if (state.countryId !== prev.countryId) {
       stop();
       drawMarkers(state);
     }

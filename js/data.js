@@ -1,9 +1,10 @@
 // js/data.js
 // Purpose: cached loader for ./data/ (GeoJSON/JSON + streaming large-CSV adapter & grid aggregator)
-//          with automatic discovery of copy-pasted csv_by_year folders, pre-indexed multi-year series,
-//          dynamic before/after statistical tests, and basin bbox filtering.
+//          with automatic discovery of csv_by_year folders, XLSX/CSV summaries, pre-indexed multi-year series,
+//          GFAS atmospheric plume grids, and dynamic before/after statistical tests.
 
 import { DATA_CONFIG } from './data-config.js';
+import { erfcApprox, quantileSorted } from './theme.js';
 
 const BASE = './data/';
 const cache = new Map();        // url or key -> Promise
@@ -54,7 +55,7 @@ async function getScopeIndex() {
   return fetchJsonOptional(`${BASE}scope-index.json`);
 }
 
-// ---- Streaming, non-blocking CSV parser & spatial aggregator for 20–60+ MB CSVs ----------------
+// ---- Streaming, non-blocking CSV parser & spatial aggregator ------------------------------------
 
 function splitCsvRow(line) {
   const out = [];
@@ -80,7 +81,6 @@ function splitCsvRow(line) {
   return out;
 }
 
-// Fast zero-allocation field extractor for unquoted CSV lines (standard NASA FIRMS rows)
 function fastSplit(line, out) {
   out.length = 0;
   let start = 0;
@@ -133,9 +133,6 @@ function parseYear(rawYear, rawDate) {
   return null;
 }
 
-/**
- * Parse a CSV string in non-blocking chunks and invoke onRow(cells, cols, headers).
- */
 export async function parseCsv(text, onRow, chunkRows = DATA_CONFIG.chunkRows) {
   if (!text) return;
   let pos = 0;
@@ -260,9 +257,6 @@ async function streamZipCsv(source, onRow, chunkRows = DATA_CONFIG.chunkRows) {
   return true;
 }
 
-/**
- * Stream a CSV source (URL string or File/Blob; supports .zip archives) line-by-line cleanly.
- */
 async function streamCsv(source, onRow, chunkRows = DATA_CONFIG.chunkRows) {
   if (!source) return false;
   if (typeof source === 'string' && source.toLowerCase().split('?')[0].endsWith('.zip')) {
@@ -333,9 +327,6 @@ async function streamCsv(source, onRow, chunkRows = DATA_CONFIG.chunkRows) {
   return true;
 }
 
-/**
- * Register a runtime CSV override (URL string or browser File/Blob) for any scope + kind ('fires'|'air'|'series').
- */
 export function setCsvOverride(scope, kind, source) {
   const key = `${scope}:${kind}`;
   if (!source) csvOverrides.delete(key);
@@ -361,12 +352,12 @@ function selectSensorEntries(entries, year) {
 
 async function resolveSourcesForYear(scope, kind, year) {
   const override = csvOverrides.get(`${scope}:${kind}`);
-  if (override) return { sources: [override], clipBbox: null, gridUrl: null };
+  if (override) return { sources: [override], gridUrl: null };
 
   const scopeCfg = DATA_CONFIG.scopes && DATA_CONFIG.scopes[scope];
   const prop = kind === 'fires' ? 'firesCsv' : kind === 'air' ? 'airCsv' : 'seriesCsv';
   if (scopeCfg && scopeCfg[prop]) {
-    return { sources: [scopeCfg[prop].replace('{scope}', scope).replace('{year}', String(year))], clipBbox: null, gridUrl: null };
+    return { sources: [scopeCfg[prop].replace('{scope}', scope).replace('{year}', String(year))], gridUrl: null };
   }
 
   const manifest = await getManifest();
@@ -377,35 +368,25 @@ async function resolveSourcesForYear(scope, kind, year) {
         const picked = selectSensorEntries(entry.fires, year);
         if (picked.length) {
           const gridEntry = picked.find((e) => e.gridUrl);
-          return { sources: picked.map((e) => e.url), clipBbox: null, gridUrl: gridEntry ? gridEntry.gridUrl : null };
+          return { sources: picked.map((e) => e.url), gridUrl: gridEntry ? gridEntry.gridUrl : null };
         }
       }
-      // If a case-study basin has no dedicated fire CSVs, filter the parent country's CSV by basin bbox
-      if (scope.includes('/')) {
-        const [countryId, basinId] = scope.split('/');
-        const parentEntry = manifest.scopes[countryId];
-        if (parentEntry && Array.isArray(parentEntry.fires) && parentEntry.fires.length) {
-          const picked = selectSensorEntries(parentEntry.fires, year);
-          if (picked.length) {
-            const c = countryEntry(countryId);
-            const bbox = c && c.basin && c.basin.id === basinId && Array.isArray(c.basin.bbox) ? c.basin.bbox : null;
-            const gridEntry = picked.find((e) => e.gridUrl);
-            const basinGridUrl = gridEntry && year ? `${BASE}fire-grid/${countryId}-${basinId}-${year}.json` : null;
-            return { sources: picked.map((e) => e.url), clipBbox: bbox, gridUrl: basinGridUrl };
-          }
-        }
+      return { sources: [], gridUrl: null };
+    }
+    if (kind === 'air') {
+      const emFiles = entry && Array.isArray(entry.emissionsByYearFiles) ? entry.emissionsByYearFiles : [];
+      const emMatch = emFiles.find((e) => e.year === year);
+      if (emMatch) {
+        return { sources: [emMatch.url], gridUrl: emMatch.gridUrl || null };
       }
-      return { sources: [], clipBbox: null, gridUrl: null };
     }
     const direct = entry && entry[kind];
-    return { sources: direct ? [direct] : [], clipBbox: null, gridUrl: null };
+    return { sources: direct ? [direct] : [], gridUrl: null };
   }
 
-  // Static fallback when no manifest is available
   const pat = DATA_CONFIG.patterns && DATA_CONFIG.patterns[prop];
   return {
     sources: pat ? [pat.replace('{scope}', scope).replace('{year}', String(year))] : [],
-    clipBbox: null,
     gridUrl: null,
   };
 }
@@ -414,10 +395,9 @@ async function loadSeriesCsv(sources, scope) {
   const list = Array.isArray(sources) ? sources : [sources];
   if (!list.length) return null;
   const variables = {};
-  const waterBodies = {};
-  const ensureVar = (bucket, id) => {
-    if (!bucket[id]) bucket[id] = { annualMap: new Map(), monthlyMap: new Map() };
-    return bucket[id];
+  const ensureVar = (id) => {
+    if (!variables[id]) variables[id] = { annualMap: new Map(), monthlyMap: new Map() };
+    return variables[id];
   };
 
   let loadedAny = false;
@@ -426,9 +406,7 @@ async function loadSeriesCsv(sources, scope) {
       const varId = cols.variable >= 0 ? String(cells[cols.variable] || '').trim() : '';
       const val = cols.value >= 0 ? toNum(cells[cols.value]) : null;
       if (!varId || val === null) return;
-      const wb = cols.waterBody >= 0 ? String(cells[cols.waterBody] || '').trim() : '';
-      const bucket = wb ? (waterBodies[wb] || (waterBodies[wb] = {})) : variables;
-      const target = ensureVar(bucket, varId);
+      const target = ensureVar(varId);
       const dateRaw = cols.date >= 0 ? String(cells[cols.date] || '').trim() : '';
       const ym = dateRaw.match(/^(\d{4})-(\d{2})/);
       if (ym) {
@@ -442,20 +420,14 @@ async function loadSeriesCsv(sources, scope) {
   }
 
   if (!loadedAny) return null;
-  const finalize = (bucket) => {
-    const out = {};
-    for (const [id, entry] of Object.entries(bucket)) {
-      const annual = Array.from(entry.annualMap.entries()).sort((a, b) => a[0] - b[0]);
-      const monthly = Array.from(entry.monthlyMap.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-      out[id] = { annual, monthly };
-    }
-    return out;
-  };
-  const wbOut = {};
-  for (const [wb, b] of Object.entries(waterBodies)) wbOut[wb] = finalize(b);
-  const finalized = finalize(variables);
-  if (!Object.keys(finalized).length && !Object.keys(wbOut).length) return null;
-  return { scope, variables: finalized, waterBodies: wbOut };
+  const out = {};
+  for (const [id, entry] of Object.entries(variables)) {
+    const annual = Array.from(entry.annualMap.entries()).sort((a, b) => a[0] - b[0]);
+    const monthly = Array.from(entry.monthlyMap.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+    out[id] = { annual, monthly };
+  }
+  if (!Object.keys(out).length) return null;
+  return { scope, variables: out };
 }
 
 function topKeyFromCounts(map) {
@@ -468,12 +440,6 @@ function topKeyFromCounts(map) {
     }
   }
   return bestKey ? { name: bestKey, value: bestVal } : null;
-}
-
-function quantileSorted(sorted, q) {
-  if (!sorted.length) return null;
-  const pos = Math.min(sorted.length - 1, Math.max(0, Math.floor(q * (sorted.length - 1))));
-  return sorted[pos];
 }
 
 async function loadSummaryData(entry, preIndexed) {
@@ -541,6 +507,7 @@ async function loadSummaryData(entry, preIndexed) {
         topForests: detail.topForests,
         topNationalForests: detail.topNationalForests,
         sensor: detail.sensor,
+        summaryOnly: Boolean(detail.summaryOnly || prev.summaryOnly),
       });
     }
   }
@@ -602,28 +569,15 @@ async function loadSummaryData(entry, preIndexed) {
   };
 }
 
-// ---- Dynamic statistical helpers (for CSV-only datasets without pre-baked stats.json) -----------
-
-function erfcApprox(x) {
-  const z = Math.abs(x);
-  const t = 1 / (1 + 0.5 * z);
-  const ans = t * Math.exp(-z * z - 1.26551223 + t * (1.00002368 + t * (0.37409196
-    + t * (0.09678418 + t * (-0.18628806 + t * (0.27886807 + t * (-1.13520398
-    + t * (1.48851587 + t * (-0.82215223 + t * 0.17087277)))))))));
-  return x >= 0 ? ans : 2 - ans;
-}
+// ---- Dynamic statistical helpers ----------------------------------------------------------------
 
 function normalCdf(z) {
   return 0.5 * erfcApprox(-z / Math.SQRT2);
 }
 
-// Accurate two-tailed p-value for Student's t using Peizer-Pratt approximation for small df
 function studentTTwoTailedP(tAbs, df) {
   if (!Number.isFinite(tAbs) || !Number.isFinite(df) || df <= 0) return 1;
   if (df > 200) return 2 * (1 - normalCdf(tAbs));
-  // Numerical integration of Student's t PDF tail via Simpson's rule over transformed u in [0, 1]
-  // where t = tAbs + (1 - u)/u? Simpler: integrate PDF from 0 to tAbs and subtract from 0.5!
-  // For tAbs > 20, use asymptotic expansion / normal approx clamped safely.
   if (tAbs === 0) return 1;
   const logGamma = (z) => {
     const c = [76.18009172947146, -86.50532032941677, 24.01409824083091,
@@ -739,11 +693,10 @@ export function computeBeforeAfterStats(series, meta) {
   const [y0] = Array.isArray(meta.years) ? meta.years : [2002, 2026];
   const months = [5, 6, 7, 8, 9];
   const beforeAfter = [];
-  const candidateVars = ['fire_frp', 'fire_count', 'aod', 'kd490', 'chlor_a'];
+  const candidateVars = ['fire_frp', 'fire_count', 'viirs_count', 'co2_em', 'pm25_em', 'aod'];
 
   for (const varId of candidateVars) {
-    const wb = isWaterVar(varId) ? meta.primaryWaterBody : undefined;
-    const pts = monthlySeries(series, varId, wb);
+    const pts = monthlySeries(series, varId);
     if (!pts.length) continue;
 
     const byYear = new Map();
@@ -769,7 +722,6 @@ export function computeBeforeAfterStats(series, meta) {
       if (!res) continue;
       beforeAfter.push({
         variable: varId,
-        waterBody: wb || null,
         event,
         before_years: beforeYears,
         after_years: afterYears,
@@ -784,23 +736,15 @@ export function computeBeforeAfterStats(series, meta) {
   return beforeAfter.length ? { beforeAfter, links: [], trends: [] } : null;
 }
 
-async function loadSpatialCsvByYear(sources, kind, scope, isBasin, defaultYear, clipBbox) {
+async function loadSpatialCsvByYear(sources, kind, scope, defaultYear) {
   const sourceKey = sources.map((s) => (typeof s === 'string' ? s : 'blob')).join('|');
-  const bboxKey = clipBbox ? clipBbox.join(',') : '';
-  const cacheKey = `${scope}:${kind}:${sourceKey}:${bboxKey}`;
+  const cacheKey = `${scope}:${kind}:${sourceKey}`;
   if (csvIndexCache.has(cacheKey)) return csvIndexCache.get(cacheKey);
 
   const promise = (async () => {
-    const gridDeg = kind === 'fires'
-      ? (isBasin ? DATA_CONFIG.gridDeg.basinFires : DATA_CONFIG.gridDeg.countryFires)
-      : (isBasin ? DATA_CONFIG.gridDeg.basinAir : DATA_CONFIG.gridDeg.countryAir);
-
+    const gridDeg = kind === 'fires' ? DATA_CONFIG.gridDeg.countryFires : DATA_CONFIG.gridDeg.countryAir;
     const byYear = new Map();
     const statsByYear = new Map();
-    const minLon = clipBbox ? clipBbox[0] : -Infinity;
-    const minLat = clipBbox ? clipBbox[1] : -Infinity;
-    const maxLon = clipBbox ? clipBbox[2] : Infinity;
-    const maxLat = clipBbox ? clipBbox[3] : Infinity;
 
     const getStats = (yr, src) => {
       let s = statsByYear.get(yr);
@@ -830,11 +774,10 @@ async function loadSpatialCsvByYear(sources, kind, scope, isBasin, defaultYear, 
     };
 
     for (const src of sources) {
-      await streamCsv(src, (cells, cols) => {
+      await streamCsv(src, (cells, cols, headers) => {
         const lat = cols.lat >= 0 ? toNum(cells[cols.lat]) : null;
         const lon = cols.lon >= 0 ? toNum(cells[cols.lon]) : null;
         if (lat === null || lon === null) return;
-        if (lat < minLat || lat > maxLat || lon < minLon || lon > maxLon) return;
 
         const yr = parseYear(
           cols.year >= 0 ? cells[cols.year] : undefined,
@@ -867,16 +810,8 @@ async function loadSpatialCsvByYear(sources, kind, scope, isBasin, defaultYear, 
           const cur = yearMap.get(key);
           if (!cur) {
             yearMap.set(key, {
-              lon: snapLon,
-              lat: snapLat,
-              count,
-              frp_sum: frp,
-              max_frp: frp,
-              high_frp: isHighFrp ? count : 0,
-              first: dateStr,
-              last: dateStr,
-              state: stateName,
-              forest: fName,
+              lon: snapLon, lat: snapLat, count, frp_sum: frp, max_frp: frp,
+              high_frp: isHighFrp ? count : 0, first: dateStr, last: dateStr, state: stateName, forest: fName,
             });
           } else {
             cur.count += count;
@@ -912,15 +847,25 @@ async function loadSpatialCsvByYear(sources, kind, scope, isBasin, defaultYear, 
             }
           }
         } else {
+          const iCo2 = headers.findIndex((h) => h.toLowerCase() === 'co2_tonnes');
+          const iPmT = headers.findIndex((h) => h.toLowerCase() === 'pm25_tonnes');
+          const iBcT = headers.findIndex((h) => h.toLowerCase() === 'bc_tonnes');
+          const co2 = iCo2 >= 0 ? (toNum(cells[iCo2]) ?? 0) : 0;
+          const pmT = iPmT >= 0 ? (toNum(cells[iPmT]) ?? 0) : 0;
+          const bcT = iBcT >= 0 ? (toNum(cells[iBcT]) ?? 0) : 0;
           const aod = cols.aod >= 0 ? toNum(cells[cols.aod]) : null;
-          const pm25 = cols.pm25 >= 0 ? toNum(cells[cols.pm25]) : null;
-          if (aod === null && pm25 === null) return;
+          if (!co2 && !pmT && aod === null) return;
+          const region = cols.state >= 0 ? String(cells[cols.state] || '').trim() : '';
+          const forest = cols.forest >= 0 ? String(cells[cols.forest] || '').trim() : '';
           const cur = yearMap.get(key);
           if (!cur) {
-            yearMap.set(key, { lon: snapLon, lat: snapLat, aodSum: aod ?? 0, aodN: aod !== null ? 1 : 0, pmSum: pm25 ?? 0, pmN: pm25 !== null ? 1 : 0 });
+            yearMap.set(key, { lon: snapLon, lat: snapLat, co2, pm25: pmT, bc: bcT, aodSum: aod ?? 0, aodN: aod !== null ? 1 : 0, region, forest, maxPm: pmT });
           } else {
+            cur.co2 += co2;
+            cur.pm25 += pmT;
+            cur.bc += bcT;
             if (aod !== null) { cur.aodSum += aod; cur.aodN += 1; }
-            if (pm25 !== null) { cur.pmSum += pm25; cur.pmN += 1; }
+            if (pmT > cur.maxPm) { cur.maxPm = pmT; if (region) cur.region = region; if (forest) cur.forest = forest; }
           }
         }
       });
@@ -950,8 +895,13 @@ async function loadSpatialCsvByYear(sources, kind, scope, isBasin, defaultYear, 
             type: 'Feature',
             geometry: { type: 'Point', coordinates: [item.lon, item.lat] },
             properties: {
+              co2: Number(item.co2.toFixed(1)),
+              pm25: Number(item.pm25.toFixed(1)),
+              bc: Number(item.bc.toFixed(2)),
               aod: item.aodN ? Number((item.aodSum / item.aodN).toFixed(4)) : 0,
-              pm25: item.pmN ? Number((item.pmSum / item.pmN).toFixed(2)) : null,
+              intensity: Number(Math.min(1, Math.log10(1 + item.pm25 / 50) / 3.6).toFixed(3)),
+              region: item.region || undefined,
+              forest: item.forest || undefined,
             },
           });
         }
@@ -985,7 +935,6 @@ async function loadSpatialCsvByYear(sources, kind, scope, isBasin, defaultYear, 
 
 // ---- Public API ---------------------------------------------------------------------------------
 
-/** Parsed data/regions.json (or null). */
 export async function getRegions() {
   const regions = await fetchJson(`${BASE}regions.json`);
   if (regions && !regionsSync) regionsSync = regions;
@@ -1002,30 +951,21 @@ function countryEntry(countryId, regions = regionsSync) {
 }
 
 export function scopePath(state) {
-  const country = countryEntry(state.countryId);
-  if (state.view === 'basin' && country && country.basin && country.basin.id) {
-    return `${state.countryId}/${country.basin.id}`;
-  }
-  return state.countryId;
+  return state.countryId || 'usa';
 }
 
-export function buildMeta(country, view, regions) {
-  const common = { years: regions.years };
-  if (view === 'basin' && country.basin) {
-    const b = country.basin;
-    return {
-      kind: 'basin', id: b.id, countryId: country.id, name: b.name, shortName: b.shortName,
-      bbox: b.bbox, camera: b.camera, eventYears: b.eventYears, fishMetric: b.fishMetric,
-      currency: b.currency, primaryWaterBody: b.primaryWaterBody, waterBodies: b.waterBodies || [],
-      basin: null, path: `${country.id}/${b.id}`, ...common,
-    };
-  }
+export function buildMeta(country, regions) {
   return {
-    kind: 'country', id: country.id, countryId: country.id, name: country.name, shortName: country.shortName,
-    bbox: country.bbox, camera: country.camera, eventYears: country.eventYears, fishMetric: country.fishMetric,
-    currency: country.currency, primaryWaterBody: null, waterBodies: [],
-    basin: country.basin ? { id: country.basin.id, name: country.basin.name, shortName: country.basin.shortName } : null,
-    path: country.id, ...common,
+    kind: 'country',
+    id: country.id,
+    countryId: country.id,
+    name: country.name,
+    shortName: country.shortName,
+    bbox: country.bbox,
+    camera: country.camera,
+    eventYears: country.eventYears,
+    path: country.id,
+    years: regions.years,
   };
 }
 
@@ -1033,8 +973,7 @@ export async function getScope(state) {
   const regions = await getRegions();
   const country = countryEntry(state.countryId, regions);
   if (!country) return null;
-  const view = state.view === 'basin' && country.basin ? 'basin' : 'country';
-  const path = view === 'basin' ? `${country.id}/${country.basin.id}` : country.id;
+  const path = country.id;
   const key = `scope:${path}`;
   if (!cache.has(key)) {
     cache.set(key, (async () => {
@@ -1046,16 +985,15 @@ export async function getScope(state) {
       ]);
       const mEntry = manifest && manifest.scopes ? manifest.scopes[path] : null;
       const preIndexed = scopeIndex && scopeIndex.scopes ? scopeIndex.scopes[path] : null;
-      const [geo, rivers, seriesJson, statsJson, seriesFromCsv, summary] = await Promise.all([
+      const [geo, seriesJson, statsJson, seriesFromCsv, summary] = await Promise.all([
         fetchJson(`${BASE}${path}/geo.geojson`),
-        fetchJson(`${BASE}${path}/rivers.geojson`),
         csvOnly ? Promise.resolve(null) : fetchJson(`${BASE}${path}/series.json`),
         csvOnly ? Promise.resolve(null) : fetchJson(`${BASE}${path}/stats.json`),
         resolvedSeries.sources.length ? loadSeriesCsv(resolvedSeries.sources, path) : Promise.resolve(null),
         DATA_CONFIG.mode !== 'geojson' ? loadSummaryData(mEntry, preIndexed) : Promise.resolve(null),
       ]);
 
-      const meta = buildMeta(country, view, regions);
+      const meta = buildMeta(country, regions);
       const [y0, y1] = Array.isArray(regions.years) ? regions.years : [2002, 2026];
       const filterByYears = (pairs) => (pairs || []).filter(([yr]) => Number(yr) >= y0 && Number(yr) <= y1);
       const filterMonthlyByYears = (pairs) => (pairs || []).filter(([ym]) => {
@@ -1063,60 +1001,74 @@ export async function getScope(state) {
         return yr >= y0 && yr <= y1;
       });
 
-      let mergedSeries = seriesFromCsv || seriesJson;
+      let mergedSeries = seriesFromCsv || seriesJson || { scope: path, variables: {} };
+      if (!mergedSeries.variables) mergedSeries.variables = {};
+
       if (preIndexed && preIndexed.series) {
-        if (!mergedSeries) mergedSeries = { scope: path, variables: {}, waterBodies: {} };
-        if (!mergedSeries.variables.fire_count && preIndexed.series.fire_count) {
-          mergedSeries.variables.fire_count = {
-            annual: filterByYears(preIndexed.series.fire_count.annual),
-            monthly: filterMonthlyByYears(preIndexed.series.fire_count.monthly),
-          };
-        }
-        if (!mergedSeries.variables.viirs_count && preIndexed.series.viirs_count) {
-          mergedSeries.variables.viirs_count = {
-            annual: filterByYears(preIndexed.series.viirs_count.annual),
-            monthly: filterMonthlyByYears(preIndexed.series.viirs_count.monthly),
-          };
-        }
-        if (!mergedSeries.variables.fire_frp && preIndexed.series.fire_frp) {
-          mergedSeries.variables.fire_frp = {
-            annual: filterByYears(preIndexed.series.fire_frp.annual),
-            monthly: filterMonthlyByYears(preIndexed.series.fire_frp.monthly),
-          };
+        for (const vid of ['fire_count', 'viirs_count', 'fire_frp']) {
+          if (!mergedSeries.variables[vid] && preIndexed.series[vid]) {
+            mergedSeries.variables[vid] = {
+              annual: filterByYears(preIndexed.series[vid].annual),
+              monthly: filterMonthlyByYears(preIndexed.series[vid].monthly),
+            };
+          }
         }
       }
 
+      // Merge any summaryByYear totals missing from point CSVs (e.g. Canada XLSX 2015-2019 & 2021-2025)
       if (summary && summary.byYear && summary.byYear.size) {
-        if (!mergedSeries) mergedSeries = { scope: path, variables: {}, waterBodies: {} };
         const rows = Array.from(summary.byYear.values())
           .filter((r) => r.year >= y0 && r.year <= y1)
           .sort((a, b) => a.year - b.year);
-        if (!mergedSeries.variables.fire_count) {
-          const annual = rows
-            .map((r) => [r.year, r.modisTotal || (r.sensor !== 'VIIRS' ? r.detections : 0)])
-            .filter(([, v]) => v > 0);
-          if (annual.length) mergedSeries.variables.fire_count = { annual, monthly: [] };
-        }
-        if (!mergedSeries.variables.viirs_count) {
-          const viirsAnnual = rows
-            .filter((r) => r.viirsTotal > 0)
-            .map((r) => [r.year, r.viirsTotal]);
-          if (viirsAnnual.length) mergedSeries.variables.viirs_count = { annual: viirsAnnual, monthly: [] };
+
+        const mergeAnnual = (varId, extractor) => {
+          const existing = mergedSeries.variables[varId] || { annual: [], monthly: [] };
+          const map = new Map(existing.annual || []);
+          for (const r of rows) {
+            const val = extractor(r);
+            if (val > 0 && !map.has(r.year)) map.set(r.year, val);
+          }
+          if (map.size) {
+            mergedSeries.variables[varId] = {
+              annual: Array.from(map.entries()).sort((a, b) => a[0] - b[0]),
+              monthly: existing.monthly || [],
+            };
+          }
+        };
+
+        mergeAnnual('fire_count', (r) => r.modisTotal || (r.sensor !== 'VIIRS' ? r.detections : 0));
+        mergeAnnual('viirs_count', (r) => r.viirsTotal);
+      }
+
+      // Inject 2003-2026 CAMS GFAS CO2 and PM2.5 emission series for Air & Smoke charts
+      const em = (preIndexed && preIndexed.emissions) || null;
+      if (em && em.years) {
+        const yrs = Object.keys(em.years).map(Number).filter((y) => y >= y0 && y <= y1).sort((a, b) => a - b);
+        if (yrs.length) {
+          if (!mergedSeries.variables.co2_em) {
+            mergedSeries.variables.co2_em = {
+              annual: yrs.map((y) => [y, em.years[y].co2 || 0]).filter(([, v]) => v > 0),
+              monthly: filterMonthlyByYears(em.monthlyCo2 || []),
+            };
+          }
+          if (!mergedSeries.variables.pm25_em) {
+            mergedSeries.variables.pm25_em = {
+              annual: yrs.map((y) => [y, em.years[y].pm25 || 0]).filter(([, v]) => v > 0),
+              monthly: filterMonthlyByYears(em.monthlyPm25 || []),
+            };
+          }
         }
       }
 
       const stats = statsJson || computeBeforeAfterStats(mergedSeries, meta);
-      const fireEntries = mEntry && Array.isArray(mEntry.fires)
-        ? mEntry.fires
-        : (view === 'basin' && manifest && manifest.scopes && manifest.scopes[country.id] && manifest.scopes[country.id].fires) || [];
+      const fireEntries = mEntry && Array.isArray(mEntry.fires) ? mEntry.fires : [];
       return {
         meta,
         geo,
-        rivers,
         series: mergedSeries,
         stats,
         summary,
-        emissions: (preIndexed && preIndexed.emissions) || null,
+        emissions: em,
         hasFireCsvs: fireEntries.length > 0,
       };
     })());
@@ -1124,7 +1076,6 @@ export async function getScope(state) {
   return cache.get(key);
 }
 
-/** Load accurate 50m country borders (falls back cleanly to 50m data/<country>/geo.geojson). */
 export async function getAllCountriesGeo() {
   const regions = await getRegions();
   if (!regions || !Array.isArray(regions.countries)) return [];
@@ -1162,30 +1113,31 @@ async function yearLayer(state, folder, year) {
   const y = Number(year);
   if (!Number.isInteger(y)) return null;
   const scope = scopePath(state);
-  const isBasin = scope.includes('/');
 
   if (DATA_CONFIG.mode !== 'geojson') {
-    const { sources, clipBbox, gridUrl } = await resolveSourcesForYear(scope, folder, y);
-    if (folder === 'fires' && gridUrl) {
+    const { sources, gridUrl } = await resolveSourcesForYear(scope, folder, y);
+    if (gridUrl) {
       const preGrid = await fetchJsonOptional(gridUrl);
       if (preGrid && Array.isArray(preGrid.features)) {
-        const si = await getScopeIndex();
-        const yrDet = si && si.scopes && si.scopes[scope] && si.scopes[scope].years ? si.scopes[scope].years[y] : null;
-        if (yrDet) {
-          preGrid.summary = {
-            ...(preGrid.summary || {}),
-            detections: yrDet.detections,
-            totalFrpMw: yrDet.totalFrpMw,
-            maxFrpMw: yrDet.maxFrpMw,
-            topState: yrDet.topStates && yrDet.topStates[0] ? { name: yrDet.topStates[0].name, value: yrDet.topStates[0].count } : undefined,
-            topForest: yrDet.topForests && yrDet.topForests[0] ? { name: yrDet.topForests[0].name, value: yrDet.topForests[0].count } : undefined,
-          };
+        if (folder === 'fires') {
+          const si = await getScopeIndex();
+          const yrDet = si && si.scopes && si.scopes[scope] && si.scopes[scope].years ? si.scopes[scope].years[y] : null;
+          if (yrDet) {
+            preGrid.summary = {
+              ...(preGrid.summary || {}),
+              detections: yrDet.detections,
+              totalFrpMw: yrDet.totalFrpMw,
+              maxFrpMw: yrDet.maxFrpMw,
+              topState: yrDet.topStates && yrDet.topStates[0] ? { name: yrDet.topStates[0].name, value: yrDet.topStates[0].count } : undefined,
+              topForest: yrDet.topForests && yrDet.topForests[0] ? { name: yrDet.topForests[0].name, value: yrDet.topForests[0].count } : undefined,
+            };
+          }
         }
         return preGrid;
       }
     }
     if (sources.length) {
-      const indexed = await loadSpatialCsvByYear(sources, folder, scope, isBasin, y, clipBbox);
+      const indexed = await loadSpatialCsvByYear(sources, folder, scope, y);
       if (indexed && indexed.has(y)) return indexed.get(y);
     }
     if (DATA_CONFIG.mode === 'csv') return { type: 'FeatureCollection', scope, year: y, features: [] };
@@ -1201,17 +1153,8 @@ export function getAir(state, year) {
   return yearLayer(state, 'air', year);
 }
 
-export function isWaterVar(varId) {
-  return varId === 'kd490' || varId === 'chlor_a';
-}
-
-function pickVariable(series, varId, waterBodyId) {
+function pickVariable(series, varId) {
   if (!series || !varId) return null;
-  if (isWaterVar(varId)) {
-    if (!waterBodyId || !series.waterBodies) return null;
-    const body = series.waterBodies[waterBodyId];
-    return body && body[varId] ? body[varId] : null;
-  }
   return series.variables && series.variables[varId] ? series.variables[varId] : null;
 }
 
@@ -1221,16 +1164,15 @@ function num(v) {
 
 const seriesIndexCache = new WeakMap();
 
-function getIndexedVariable(series, varId, waterBodyId) {
-  const v = pickVariable(series, varId, waterBodyId);
+function getIndexedVariable(series, varId) {
+  const v = pickVariable(series, varId);
   if (!v) return null;
   let perSeries = seriesIndexCache.get(series);
   if (!perSeries) {
     perSeries = new Map();
     seriesIndexCache.set(series, perSeries);
   }
-  const key = `${waterBodyId || ''}:${varId}`;
-  let entry = perSeries.get(key);
+  let entry = perSeries.get(varId);
   if (entry) return entry;
 
   const annual = Array.isArray(v.annual)
@@ -1256,28 +1198,28 @@ function getIndexedVariable(series, varId, waterBodyId) {
     : [];
 
   entry = { annual, annualMap, monthly, median };
-  perSeries.set(key, entry);
+  perSeries.set(varId, entry);
   return entry;
 }
 
-export function annualSeries(series, varId, waterBodyId) {
-  const entry = getIndexedVariable(series, varId, waterBodyId);
+export function annualSeries(series, varId) {
+  const entry = getIndexedVariable(series, varId);
   return entry ? entry.annual : [];
 }
 
-export function monthlySeries(series, varId, waterBodyId) {
-  const entry = getIndexedVariable(series, varId, waterBodyId);
+export function monthlySeries(series, varId) {
+  const entry = getIndexedVariable(series, varId);
   return entry ? entry.monthly : [];
 }
 
-export function annualValue(series, varId, year, waterBodyId) {
-  const entry = getIndexedVariable(series, varId, waterBodyId);
+export function annualValue(series, varId, year) {
+  const entry = getIndexedVariable(series, varId);
   if (!entry) return null;
   const val = entry.annualMap.get(Number(year));
   return val === undefined ? null : val;
 }
 
-export function annualMedian(series, varId, waterBodyId) {
-  const entry = getIndexedVariable(series, varId, waterBodyId);
+export function annualMedian(series, varId) {
+  const entry = getIndexedVariable(series, varId);
   return entry ? entry.median : null;
 }

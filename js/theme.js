@@ -1,13 +1,9 @@
 // js/theme.js
-// Purpose: colours, variable table and number formatting shared by every module.
+// Purpose: shared colours, variable metadata, CSS injection, and formatting/math utilities.
 
 export const COLORS = Object.freeze({
   fire: '#D55E00',
   smoke: '#8A7F72',
-  water: '#009E73',
-  river: '#56B4E9',
-  polluted: '#7B3294',
-  fish: '#0072B2',
   year: '#E69F00',
   ink: '#1A1D21',
   muted: '#54595D',
@@ -18,7 +14,7 @@ export const COLORS = Object.freeze({
   contour: '#6E6256',
   contourMinor: '#8E8174',
   country: '#202122',
-  basin: '#E69F00',
+  forecast: '#6A3093',
 });
 
 /** Distinct cartographic colours for the three countries on the map. */
@@ -33,17 +29,31 @@ export const VARS = Object.freeze({
   fire_count: { label: 'Fire detections (MODIS)', short: 'Fires', unit: 'detections', group: 'fire', color: COLORS.fire, digits: 0 },
   viirs_count: { label: 'Fire detections (VIIRS)', short: 'VIIRS fires', unit: 'detections', group: 'fire', color: COLORS.fire, digits: 0 },
   fire_frp: { label: 'Fire radiative power', short: 'Fire power', unit: 'MW (annual sum)', group: 'fire', color: COLORS.fire, digits: 0 },
+  co2_em: { label: 'Forest fire CO₂ emissions', short: 'CO₂ emissions', unit: 'tonnes', group: 'air', color: COLORS.smoke, digits: 0 },
+  pm25_em: { label: 'Fine particulate smoke (PM₂.₅)', short: 'PM₂.₅ smoke', unit: 'tonnes', group: 'air', color: COLORS.smoke, digits: 0 },
   aod: { label: 'Aerosol optical depth 550 nm', short: 'AOD', unit: 'unitless', group: 'air', color: COLORS.smoke, digits: 3 },
   pm25: { label: 'Surface PM2.5', short: 'PM2.5', unit: 'µg/m³', group: 'air', color: COLORS.smoke, digits: 1 },
-  kd490: { label: 'Water turbidity (Kd490)', short: 'Kd490', unit: 'm⁻¹', group: 'water', color: COLORS.water, digits: 3 },
-  chlor_a: { label: 'Chlorophyll-a', short: 'Chl-a', unit: 'mg/m³', group: 'water', color: COLORS.water, digits: 2 },
-  fish_value: { label: 'Salmon landed value', short: 'Value', unit: 'million (2024 prices, local currency)', group: 'fish', color: COLORS.fish, digits: 1 },
-  fish_catch: { label: 'Salmon catch', short: 'Catch', unit: 'thousand tonnes', group: 'fish', color: COLORS.fish, digits: 1 },
 });
 
-export const GROUP_DEFAULT = Object.freeze({ fire: 'fire_frp', air: 'aod', water: 'kd490', fish: null });
-export const GROUPS = Object.freeze(['fire', 'air', 'water', 'fish']);
-export const GROUP_LABEL = Object.freeze({ fire: 'Fire', air: 'Air', water: 'Water', fish: 'Fish' });
+export const GROUP_DEFAULT = Object.freeze({ fire: 'fire_frp', air: 'co2_em' });
+export const GROUPS = Object.freeze(['fire', 'air']);
+export const GROUP_LABEL = Object.freeze({ fire: 'Fire', air: 'Air & Smoke' });
+
+export function injectCss(id, css) {
+  if (typeof document === 'undefined' || document.querySelector(`style[data-module="${id}"]`)) return;
+  const s = document.createElement('style');
+  s.dataset.module = id;
+  s.textContent = css;
+  document.head.appendChild(s);
+}
+
+export function escHtml(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
 
 export function fmt(value, varId) {
   if (value === null || value === undefined) return '—';
@@ -53,6 +63,30 @@ export function fmt(value, varId) {
   return n.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
 
+export function fmtCompact(n) {
+  if (n === null || n === undefined || !Number.isFinite(Number(n))) return '—';
+  const v = Number(n);
+  if (Math.abs(v) >= 1_000_000) return `${(v / 1_000_000).toFixed(2)}M`;
+  if (Math.abs(v) >= 10_000) return `${(v / 1_000).toFixed(1)}k`;
+  return v.toLocaleString('en-US');
+}
+
+export function fmtCompactTick(val) {
+  const v = Number(val);
+  if (!Number.isFinite(v)) return '—';
+  if (Math.abs(v) >= 1_000_000) return `${(v / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+  if (Math.abs(v) >= 10_000) return `${Math.round(v / 1_000)}k`;
+  return String(v);
+}
+
+export function fmtMass(tonnes, unit = 'auto') {
+  const v = Number(tonnes);
+  if (!Number.isFinite(v)) return '—';
+  if (unit === 'Mt' || (unit === 'auto' && Math.abs(v) >= 1_000_000)) return `${(v / 1_000_000).toFixed(1)} Mt`;
+  if (unit === 'kt' || (unit === 'auto' && Math.abs(v) >= 1_000)) return `${(v / 1_000).toFixed(1)} kt`;
+  return `${v.toFixed(0)} t`;
+}
+
 export function fmtP(p) {
   if (p === null || p === undefined || !Number.isFinite(Number(p))) return 'p = —';
   const v = Number(p);
@@ -60,11 +94,24 @@ export function fmtP(p) {
   return `p = ${v.toFixed(3)}`;
 }
 
-export function unitFor(varId, meta) {
+export function quantileSorted(sorted, q) {
+  if (!Array.isArray(sorted) || !sorted.length) return null;
+  const pos = Math.min(sorted.length - 1, Math.max(0, Math.floor(q * (sorted.length - 1))));
+  return sorted[pos];
+}
+
+export function erfcApprox(x) {
+  const z = Math.abs(x);
+  const t = 1 / (1 + 0.5 * z);
+  const ans = t * Math.exp(-z * z - 1.26551223 + t * (1.00002368 + t * (0.37409196
+    + t * (0.09678418 + t * (-0.18628806 + t * (0.27886807 + t * (-1.13520398
+    + t * (1.48851587 + t * (-0.82215223 + t * 0.17087277)))))))));
+  return x >= 0 ? ans : 2 - ans;
+}
+
+export function unitFor(varId) {
   const v = VARS[varId];
-  if (!v) return '';
-  if (varId === 'fish_value' && meta && meta.currency) return `${meta.currency} million (2024 prices)`;
-  return v.unit;
+  return v ? v.unit : '';
 }
 
 export function placeholder(el, text = 'No data for this selection') {

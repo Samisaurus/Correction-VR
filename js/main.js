@@ -12,6 +12,7 @@ import * as infoboxMod from './ui/infobox.js';
 import * as fig1Mod from './charts/fig1-trend.js';
 import * as fig2Mod from './charts/fig2-before-after.js';
 import * as fig3Mod from './charts/fig3-chain.js';
+import * as fig4Mod from './charts/fig4-outlook.js';
 
 export const ctx = { store, data, theme };
 
@@ -24,6 +25,7 @@ const MODULES = [
   { id: 'fig1', mod: fig1Mod },
   { id: 'fig2', mod: fig2Mod },
   { id: 'fig3', mod: fig3Mod },
+  { id: 'outlook', mod: fig4Mod },
 ];
 
 async function mountModule(id, mod) {
@@ -40,7 +42,6 @@ async function mountModule(id, mod) {
 function syncFrame(state) {
   const root = document.documentElement;
   root.dataset.country = state.countryId;
-  root.dataset.view = state.view;
 }
 
 export async function main() {
@@ -53,7 +54,7 @@ export async function main() {
     if (!defHasData && Array.isArray(regions.countries)) {
       for (const c of regions.countries) {
         if (c.id === store.get().countryId) continue;
-        const sc = await data.getScope({ countryId: c.id, view: 'country' });
+        const sc = await data.getScope({ countryId: c.id });
         if (sc && (sc.hasFireCsvs || (sc.series && Object.keys(sc.series.variables || {}).length))) {
           const bestYear = Array.isArray(c.eventYears) && c.eventYears.length
             ? c.eventYears[c.eventYears.length - 1]
