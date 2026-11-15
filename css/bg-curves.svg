@@ -1,15 +1,15 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800" viewBox="0 0 800 800">
-  <!-- Soft warm contour and orbital curves for the observatory background -->
-  <g fill="none" stroke="#9B8C7B" stroke-linecap="round" opacity="0.16">
-    <path d="M-80 120 C 120 40, 280 210, 480 130 S 760 50, 880 120" stroke-width="1.25"/>
-    <path d="M-80 154 C 130 74, 290 244, 490 164 S 770 84, 880 154" stroke-width="0.9" opacity="0.72"/>
-    <path d="M-80 410 C 140 500, 320 310, 520 400 S 740 490, 880 410" stroke-width="1.25"/>
-    <path d="M-80 446 C 150 536, 330 346, 530 436 S 750 526, 880 446" stroke-width="0.9" opacity="0.68"/>
-    <path d="M-80 680 C 110 600, 300 760, 500 670 S 750 610, 880 680" stroke-width="1.15"/>
-    <path d="M160 -80 C 80 140, 250 320, 170 520 S 90 740, 160 880" stroke-width="1.1" opacity="0.75"/>
-    <path d="M580 -80 C 660 130, 490 310, 570 510 S 650 730, 580 880" stroke-width="1.1" opacity="0.75"/>
-    <circle cx="400" cy="275" r="145" stroke-width="0.9" stroke-dasharray="3 6" opacity="0.58"/>
-    <circle cx="400" cy="275" r="210" stroke-width="0.85" opacity="0.46"/>
-    <path d="M220 560 Q 400 470 580 560" stroke-width="1" opacity="0.62"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="680" viewBox="0 0 1440 680">
+  <!-- Stretched archival contour and orbital trajectories for Variant-R -->
+  <g fill="none" stroke="#5F6773" stroke-linecap="round" opacity="0.28">
+    <path d="M-120 96 C 180 18, 480 188, 790 102 S 1220 26, 1560 96" stroke-width="1.35"/>
+    <path d="M-120 132 C 195 54, 495 224, 805 138 S 1235 62, 1560 132" stroke-width="0.95" opacity="0.72"/>
+    <path d="M-120 338 C 210 430, 530 232, 860 326 S 1240 422, 1560 338" stroke-width="1.35"/>
+    <path d="M-120 376 C 225 468, 545 270, 875 364 S 1255 460, 1560 376" stroke-width="0.95" opacity="0.7"/>
+    <path d="M-120 578 C 190 492, 520 656, 840 564 S 1230 500, 1560 578" stroke-width="1.25"/>
+    <path d="M-120 612 C 205 526, 535 690, 855 598 S 1245 534, 1560 612" stroke-width="0.85" opacity="0.6"/>
+    <path d="M290 -90 C 170 150, 420 340, 290 550 S 190 710, 290 770" stroke-width="1.1" opacity="0.64"/>
+    <path d="M1080 -90 C 1200 140, 950 330, 1080 540 S 1180 700, 1080 770" stroke-width="1.1" opacity="0.64"/>
+    <ellipse cx="720" cy="300" rx="460" ry="138" stroke-width="0.95" stroke-dasharray="4 7" opacity="0.54"/>
+    <ellipse cx="720" cy="300" rx="590" ry="190" stroke-width="0.85" opacity="0.42"/>
   </g>
 </svg>

@@ -12,6 +12,7 @@ const DEM_URL = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}
 const EMPTY = { type: 'FeatureCollection', features: [] };
 const FONT = ['Noto Sans Regular'];
 const CSS = `
+#map { position: relative; overflow: hidden; }
 .map-canvas { position: absolute; inset: 0; }
 .map-notice {
   position: absolute; top: 12px; left: 12px; z-index: 4; max-width: 340px;
@@ -230,14 +231,14 @@ export async function mount(el, ctx) {
   }
   const loaderEl = document.createElement('div');
   loaderEl.className = 'map-loader';
-  loaderEl.innerHTML = '<span class="ember-spinner ember-spinner--sm" aria-hidden="true"></span><span>Loading satellite layers…</span>';
+  loaderEl.innerHTML = '<span class="vr-spinner vr-spinner--sm" aria-hidden="true"></span><span>Loading map layers…</span>';
   loaderEl.hidden = true;
   el.appendChild(loaderEl);
 
   const pinBanner = document.createElement('div');
   pinBanner.className = 'map-pin-banner';
   pinBanner.hidden = true;
-  pinBanner.innerHTML = '<span>Pin Mode: Click anywhere on the map to measure 100 km fire likelihood</span><button type="button" class="map-pin-cancel">Cancel</button>';
+  pinBanner.innerHTML = '<span>Click anywhere on the map to place your 100 km risk pin</span><button type="button" class="map-pin-cancel">Cancel</button>';
   pinBanner.querySelector('.map-pin-cancel').addEventListener('click', () => store.set({ pinMode: false }));
   el.appendChild(pinBanner);
 

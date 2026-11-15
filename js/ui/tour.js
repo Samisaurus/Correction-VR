@@ -1,8 +1,8 @@
 // js/ui/tour.js
-// Purpose: integrated onboarding tour matching Ember Observatory's editorial cards and country borders,
+// Purpose: integrated onboarding tour matching Variant-R's editorial cards and country borders,
 //          plus manual replay via the header "Take tour" button.
 
-const STORAGE_KEY = 'ember_obs_tour_v2';
+const STORAGE_KEY = 'variant_r_tour_v1';
 
 const STYLE = `
 .etr-wrap {
@@ -134,45 +134,51 @@ const STYLE = `
 const STEPS = [
   {
     selector: '#region-tabs',
-    kicker: 'Step 1 of 7 · Frontier',
-    title: 'Choose Canada, USA, or Russia',
-    body: 'Switch between twenty-five years (2002–2026) of MODIS & VIIRS active-fire detections and CAMS smoke emissions across all three northern regions.',
+    kicker: 'Step 1 of 8 · Country',
+    title: 'Pick Canada, USA, or Russia',
+    body: 'Switch between 25 years (2002–2026) of satellite fire detections and smoke records across all three countries.',
   },
   {
     selector: '#year-slider',
-    kicker: 'Step 2 of 7 · Timeline',
-    title: 'Scrub & Replay 2002–2026',
-    body: 'Slide across any season or press Play to watch fire corridors evolve chronologically. Amber triangles mark landmark wildfire seasons.',
+    kicker: 'Step 2 of 8 · Timeline',
+    title: 'Slide & Replay 2002–2026',
+    body: 'Drag across any year or press Play to watch fires change over time. Orange triangles mark the biggest fire years.',
   },
   {
     selector: '#map',
-    kicker: 'Step 3 of 7 · Satellite Map',
-    title: 'Explore Active Fires, Smoke & Pin Drops',
-    body: 'Inspect hotspot clusters, toggle atmospheric smoke plumes in the top-right corner, or drop a pin on the map to measure wildfire risk near any community.',
+    kicker: 'Step 3 of 8 · Live Map',
+    title: 'Fires, Smoke Plumes & Pin Drops',
+    body: 'Zoom into fire clusters, switch smoke plumes on in the top right, or drop a pin on the map to check any town.',
   },
   {
     selector: '#local-risk',
-    kicker: 'Step 4 of 7 · Community Check',
-    title: 'Local Fire Risk Near You',
-    body: 'Select a country and city—or place a pin directly on the map—to see the combined fire probability within 100 km along with calm, practical safety tips.',
+    kicker: 'Step 4 of 8 · How Local Risk Works',
+    title: 'How Your Local Risk Score Works',
+    body: 'When you pick a city or drop a pin, Variant-R scans 25 years of satellite grids inside 100 km. Fires within 25 km weigh much more than far-off forest blazes, and smoky-air odds are scored separately from direct flame threat so your score stays realistic and your tips match your spot.',
   },
   {
     selector: '#fig2',
-    kicker: 'Step 5 of 7 · Season Contrast',
-    title: 'Before vs. After Fire-Year Comparison',
-    body: 'Compare May–September fire activity before and during/after major fire seasons using statistical significance tests.',
+    kicker: 'Step 5 of 8 · Year Contrast',
+    title: 'Before vs. During Big Fire Years',
+    body: 'Compare fire activity right before a major wildfire season against the spike itself.',
+  },
+  {
+    selector: '#forests-panel',
+    kicker: 'Step 6 of 8 · Forests & Satellites',
+    title: 'Active Forests & Sensors',
+    body: 'Search every burning forest area, check daytime vs. nighttime satellite passes, and view VIIRS outage days in this open panel.',
   },
   {
     selector: '#fig3',
-    kicker: 'Step 6 of 7 · Smoke Chemistry',
-    title: 'Combustion Plume & Atmospheric Footprint',
-    body: 'Compare eight atmospheric pollutants against 2003–2026 medians, inspect leading forest corridors, and read each season’s field dispatch.',
+    kicker: 'Step 7 of 8 · Smoke Chemistry',
+    title: 'Smoke & Pollution Breakdown',
+    body: 'Compare eight smoke gases against a typical year, explore the hardest-hit forests, and read each year’s summary.',
   },
   {
     selector: '#outlook',
-    kicker: 'Step 7 of 7 · Outlook & AI',
-    title: 'Forecast, Methodology & Ask Ember AI',
-    body: 'Project 2027–2035 wildfire stress, review our exact data & prediction formulas in the Methodology tab, or chat with the standout Ember AI analyst.',
+    kicker: 'Step 8 of 8 · Outlook & AI Search',
+    title: 'Future Forecast & Variant-R AI',
+    body: 'Test 2027–2035 warming scenarios, check the formulas in Methodology & Data Used, or use Variant-R AI Data Search to query all 25 years across all three countries.',
   },
 ];
 
@@ -208,7 +214,7 @@ export function startTour(theme) {
   wrap.className = 'etr-wrap';
   wrap.setAttribute('role', 'dialog');
   wrap.setAttribute('aria-modal', 'true');
-  wrap.setAttribute('aria-label', 'Ember Observatory guided tour');
+  wrap.setAttribute('aria-label', 'Variant-R guided tour');
 
   const spot = document.createElement('div');
   spot.className = 'etr-spot';

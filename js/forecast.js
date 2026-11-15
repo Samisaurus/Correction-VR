@@ -1,6 +1,6 @@
 // js/forecast.js
-// Purpose: hybrid statistical wildfire trend & scenario projection model (2027-2035)
-//          plus predicted spatial hotspot overlay GeoJSON and local fallback brief.
+// Purpose: wildfire trend & 2027-2035 forecast model, realistic distance-weighted local fire/smoke
+//          risk estimator with personalized everyday advice, and rich AI data-search digest.
 
 import { quantileSorted } from './theme.js';
 
@@ -48,7 +48,6 @@ function extractFrpPoints(scope) {
     }
   }
   pts.sort((a, b) => a.year - b.year);
-  // Exclude incomplete current-year YTD (e.g. 2026) from slope estimation when much lower than median
   if (pts.length > 5 && pts[pts.length - 1].year >= 2026) {
     const priorMed = medianOf(pts.slice(0, -1).map((p) => p.value));
     if (priorMed > 0 && pts[pts.length - 1].value < priorMed * 0.45) {
@@ -93,7 +92,7 @@ function aggregateTopRegions(scope, multiplier, warmingPct) {
     .slice(0, 5);
 
   if (!ranked.length) {
-    const fallbackName = scope?.meta?.shortName || scope?.meta?.name || 'Primary Boreal Corridor';
+    const fallbackName = scope?.meta?.shortName || scope?.meta?.name || 'Main Forest Belt';
     ranked.push({ name: fallbackName, weight: 100 });
   }
 
@@ -132,7 +131,7 @@ export function buildPredictedHotspotsGeoJson(baseFires, { horizonYear = 2030, w
   }
 
   scored.sort((a, b) => b.power - a.power);
-  const picked = scored.slice(0, 65).reverse(); // ascending sort so hottest targets render on top
+  const picked = scored.slice(0, 65).reverse();
 
   const outFeatures = picked.map((it) => {
     const norm = Math.sqrt(clamp(it.power / maxPower, 0.02, 1));
@@ -185,9 +184,8 @@ export function computeForecast({ scope, baseFires = null, horizonYear = 2030, w
   const projectedCo2Pct = Math.round(((projectedCo2Tonnes - medCo2) / Math.max(1, medCo2)) * 100);
 
   const plumeRiskScore = Math.min(98, Math.round(32 + (multiplier - 1) * 46 + stressRatio * 34));
-  const plumeTier = plumeRiskScore >= 75 ? 'Severe' : plumeRiskScore >= 55 ? 'Elevated' : 'Moderate';
+  const plumeTier = plumeRiskScore >= 75 ? 'High' : plumeRiskScore >= 55 ? 'Moderate' : 'Mild';
 
-  // Trajectory points (recent historical 2018-2025 + future anchors 2027, 2030, 2035)
   const histWindow = frpPoints.filter((p) => p.year >= 2018 && p.year <= 2025);
   const trajectory = histWindow.map((p) => ({
     year: p.year,
@@ -246,20 +244,20 @@ export function buildDeterministicBrief(f) {
   const third = f.topZones[2]?.region;
   const regionPhrase = runner ? `${lead} and ${runner}` : lead;
   const regimeNote = f.warmingPct >= 25
-    ? 'Severe vapor-pressure deficits turn cured northern fuels and deep duff layers into multi-week crowning corridors'
+    ? 'Hotter, drier summers dry out forest floors fast and let fires grow bigger across multiple weeks'
     : f.warmingPct >= 15
-      ? 'Longer late-summer drying windows amplify lightning holdovers and conifer canopy stress'
-      : 'Persistent seasonal drought slowly compounds baseline ignition pressure';
+      ? 'Longer dry spells in late summer raise the chance of lightning fires spreading through dry trees'
+      : 'Normal summer dryness slowly builds on past multi-year fire trends';
 
   return {
-    headline: `${f.countryName} ${f.horizonYear}: ${lead} anchors a +${f.projectedFrpPct}% fire-energy shift`,
-    riskOutlook: `${regimeNote} across ${regionPhrase}${third ? ` (with secondary pressure into ${third})` : ''}. Combined Theil-Sen drift and +${f.warmingPct}% dry-season stress push radiative energy +${f.projectedFrpPct}% and GFAS carbon output +${f.projectedCo2Pct}% above historical medians.`,
+    headline: `${f.countryName} ${f.horizonYear}: ${lead} leads a +${f.projectedFrpPct}% rise in fire heat`,
+    riskOutlook: `${regimeNote} in ${regionPhrase}${third ? ` (and nearby ${third})` : ''}. With a +${f.warmingPct}% dry-weather boost, fire heat rises +${f.projectedFrpPct}% and CO₂ smoke rises +${f.projectedCo2Pct}% above typical years.`,
     priorityZones: f.topZones.slice(0, 3).map((z) => ({
       region: z.region,
       riskLevel: z.tier,
-      driver: z.deltaPct >= 45 ? 'Extended summer vapor-pressure deficit & cured canopy' : 'Compounding lightning ignitions & dry duff',
+      driver: z.deltaPct >= 45 ? 'Dry summer heat & cured forest fuel' : 'Lightning starts & dry ground cover',
     })),
-    smokeNote: `${f.plumeTier} plume stress (${f.plumeRiskScore}/100): Dense smoke plumes lofted from ${lead} degrade downwind airsheds with fine PM₂.₅ haze and light-absorbing black carbon during peak synoptic wind corridors.`,
+    smokeNote: `${f.plumeTier} smoke index (${f.plumeRiskScore}/100): Smoke drifting from ${lead} can bring hazy skies and fine PM₂.₅ dust to towns far downwind.`,
   };
 }
 
@@ -296,9 +294,93 @@ export function summarizeScopeContext(scope, year) {
   };
 }
 
+export function buildAiDataDigest({ scope, year, allScopes = [], localRisk = null, forecast = null } = {}) {
+  const base = summarizeScopeContext(scope, year);
+  const yr = Number(year) || 2023;
+  const emYears = scope?.emissions?.years || {};
+  const byYear = scope?.summary?.byYear || new Map();
+
+  const frpMap = new Map((scope?.series?.variables?.fire_frp?.annual || []).map(([y, v]) => [Number(y), Number(v)]));
+  const modisMap = new Map((scope?.series?.variables?.fire_count?.annual || []).map(([y, v]) => [Number(y), Number(v)]));
+  const viirsMap = new Map((scope?.series?.variables?.viirs_count?.annual || []).map(([y, v]) => [Number(y), Number(v)]));
+
+  const timeline25Yr = [];
+  for (let y = 2002; y <= 2026; y += 1) {
+    const em = emYears[y];
+    const row = byYear.get(y);
+    timeline25Yr.push({
+      yr: y,
+      frpMw: Math.round(frpMap.get(y) || row?.totalFrpMw || 0) || null,
+      modis: modisMap.get(y) || row?.modisTotal || null,
+      viirs: viirsMap.get(y) || row?.viirsTotal || null,
+      co2Mt: em?.co2 ? Number((em.co2 / 1e6).toFixed(1)) : null,
+      pm25Kt: em?.pm25 ? Number((em.pm25 / 1e3).toFixed(1)) : null,
+    });
+  }
+
+  const emSelected = emYears[yr];
+  const speciesSelected = emSelected ? {
+    co2Mt: Number(((emSelected.co2 || 0) / 1e6).toFixed(2)),
+    pm25Kt: Number(((emSelected.pm25 || 0) / 1e3).toFixed(1)),
+    ch4Kt: Number(((emSelected.ch4 || 0) / 1e3).toFixed(1)),
+    coMt: Number(((emSelected.co || 0) / 1e6).toFixed(2)),
+    ocKt: Number(((emSelected.oc || 0) / 1e3).toFixed(1)),
+    bcKt: Number(((emSelected.bc || 0) / 1e3).toFixed(1)),
+    noxKt: Number(((emSelected.nox || 0) / 1e3).toFixed(1)),
+    so2Kt: Number(((emSelected.so2 || 0) / 1e3).toFixed(1)),
+  } : null;
+
+  const topForestsAllTime = (scope?.summary?.allForests || []).slice(0, 12).map((f) => ({
+    name: f.name,
+    region: f.state || '',
+    totalDetections: (f.modis || 0) + (f.viirs || 0) || f.total || 0,
+    maxFrpMw: Math.round(f.maxFrpMw || 0),
+  }));
+
+  const threeNationComparison = (allScopes || [])
+    .filter((sc) => sc?.meta?.path)
+    .map((sc) => {
+      const s = summarizeScopeContext(sc, yr);
+      return {
+        countryId: s.scopePath,
+        countryName: s.countryName,
+        selectedYearCo2Mt: s.selectedYearCo2Mt,
+        selectedYearPm25Kt: s.selectedYearPm25Kt,
+        medianCo2Mt: s.medianCo2Mt,
+        peakYear: s.peakCo2Years[0] || null,
+        cataloguedForests: sc?.summary?.allForests?.length || 0,
+      };
+    });
+
+  return {
+    ...base,
+    ...(forecast ? {
+      horizonYear: forecast.horizonYear,
+      warmingPct: forecast.warmingPct,
+      projectedFrpPct: forecast.projectedFrpPct,
+      projectedCo2Pct: forecast.projectedCo2Pct,
+      plumeRiskScore: forecast.plumeRiskScore,
+      topZones: forecast.topZones,
+    } : {}),
+    speciesSelected,
+    topForestsAllTime,
+    timeline25Yr,
+    threeNationComparison,
+    activeLocalPin: localRisk ? {
+      label: localRisk.label,
+      riskPct: localRisk.riskPct,
+      smokeRiskPct: localRisk.smokeRiskPct,
+      nearestKm: localRisk.nearestKm,
+      topForest: localRisk.topForest,
+      peakYear: localRisk.peakYear,
+      activeYearsCount: localRisk.activeYearsCount,
+    } : null,
+  };
+}
+
 export function buildDeterministicAnswer(question, ctx = {}) {
   const q = String(question || '').trim().toLowerCase();
-  const cName = ctx.countryName || 'this region';
+  const cName = ctx.countryName || 'this country';
   const yr = Number(ctx.selectedYear) || 2023;
   const hYr = Number(ctx.horizonYear) || 2030;
   const wPct = Number(ctx.warmingPct) ?? 15;
@@ -311,37 +393,70 @@ export function buildDeterministicAnswer(question, ctx = {}) {
   let suggestedScenario = null;
   const pctMatch = q.match(/\+?(\d{1,2})\s*%/);
   const yrMatch = q.match(/\b(2027|2030|2035)\b/);
-  if (pctMatch || yrMatch || /extreme|severe|worst.?case|stress|map|overlay|hotspot/.test(q)) {
-    const nextW = pctMatch ? clamp(Math.round(Number(pctMatch[1]) / 5) * 5, 0, 40) : (/extreme|severe|worst/.test(q) ? 35 : wPct);
-    const nextH = yrMatch ? Number(yrMatch[1]) : (/2035|long/.test(q) ? 2035 : hYr);
+  const histYrMatch = q.match(/\b(200[2-9]|201[0-9]|202[0-6])\b/);
+  let targetCountry = null;
+  if (/\bcanada\b/.test(q) && ctx.scopePath !== 'canada') targetCountry = 'canada';
+  else if (/\brussia\b/.test(q) && ctx.scopePath !== 'russia') targetCountry = 'russia';
+  else if (/\b(usa|united states|america)\b/.test(q) && ctx.scopePath !== 'usa') targetCountry = 'usa';
+
+  if (pctMatch || yrMatch || targetCountry || histYrMatch || /extreme|severe|worst|stress|map|overlay|hotspot|compare/.test(q)) {
+    const nextW = pctMatch ? clamp(Math.round(Number(pctMatch[1]) / 5) * 5, 0, 40) : (/extreme|severe|worst/.test(q) ? 35 : undefined);
+    const nextH = yrMatch ? Number(yrMatch[1]) : (/2035|long/.test(q) ? 2035 : undefined);
     const showOverlay = /map|overlay|hotspot|zone|where|show/.test(q) ? true : undefined;
     suggestedScenario = {
-      horizonYear: nextH,
-      warmingPct: nextW,
+      ...(targetCountry ? { countryId: targetCountry } : {}),
+      ...(histYrMatch ? { focusYear: Number(histYrMatch[1]) } : {}),
+      ...(nextH ? { horizonYear: nextH } : {}),
+      ...(nextW !== undefined ? { warmingPct: nextW } : {}),
       ...(showOverlay !== undefined ? { showPredictedOverlay: showOverlay } : {}),
+      ...(/smoke|pm2|haze/.test(q) ? { focus: 'pm25_em' } : {}),
     };
+    if (!Object.keys(suggestedScenario).length) suggestedScenario = null;
   }
 
+  const nations = Array.isArray(ctx.threeNationComparison) ? ctx.threeNationComparison : [];
+  const topForests = Array.isArray(ctx.topForestsAllTime) ? ctx.topForestsAllTime : [];
+  const pin = ctx.activeLocalPin;
+
   let answer;
-  if (/why|cause|surge|driver|peak|worst|high/.test(q)) {
-    answer = co2Mt
-      ? `In ${yr}, ${cName} released ${co2Mt} Mt CO₂${ctx.selectedYearRank ? ` (#${ctx.selectedYearRank} of 24 GFAS years)` : ''}, led by concentrated burning in ${lead}. Across the full archive, ${cName}'s heaviest carbon years—such as ${peakStr || yr}—occur when multi-month dry-season anomalies overlap lightning-rich continental corridors.`
-      : `Across ${cName}'s archive, the sharpest surges cluster when synchronous summer blocking ridges cure biomass rapidly across ${lead}${peakStr ? `, exemplified by ${peakStr}` : ''}.`;
-  } else if (/smoke|pm2|air|haze|carbon|co2/.test(q)) {
-    answer = co2Mt && pm25Kt
-      ? `During ${yr}, ${cName} lofted ${co2Mt} Mt CO₂ alongside ${pm25Kt} kt of fine PM₂.₅ smoke—primarily from ${lead}. Because smoldering duff and permafrost soils emit disproportionately more PM₂.₅ and CO per unit of radiative heat than brief grass fires, smoke hazards persist well downwind.`
-      : `Smoke tonnage scales nonlinearly with organic fuel depth: peat and boreal duff layers in ${lead} yield heavy PM₂.₅ and black-carbon plumes that degrade regional air quality even hundreds of kilometers downwind.`;
-  } else if (/missing|csv|2011|2012|2019|2021|sensor|modis|viirs/.test(q)) {
-    answer = `${cName} tracks fire activity across dual MODIS (1 km, 2002–2026) and higher-sensitivity VIIRS (375 m, 2012+) instruments paired with Copernicus CAMS GFAS emissions (2003–2026). Even where individual point-detection files weren't archived on disk for a given year, CAMS GFAS totals and workbook sensor summaries preserve the continuous record in charts and telemetry.`;
-  } else if (suggestedScenario) {
-    answer = `Shifting the scenario to ${suggestedScenario.horizonYear} at +${suggestedScenario.warmingPct}% dry-season stress amplifies late-summer vapor deficits along ${lead}, accelerating projected FRP (~+${ctx.projectedFrpPct || 25}% currently at ${hYr}/+${wPct}%) and widening high-risk hotspot corridors. Click Apply below to project those parameters directly onto the globe and model.`;
-  } else {
-    answer = `Looking at ${cName} (${yr}${co2Mt ? `: ${co2Mt} Mt CO₂` : ''}), activity pivots around ${lead}${peakStr ? `, with historic extremes in ${peakStr}` : ''}. Under your +${wPct}% warming stress horizon to ${hYr}, projected fire energy rises +${ctx.projectedFrpPct ?? 0}% above the long-run median—ask about specific regions, smoke aerosols, or test a +35% 2035 scenario to explore further.`;
+  if (/compare|biggest|worst country|canada.*russia|russia.*canada|usa.*canada|three countries|3 countries/.test(q) && nations.length >= 2) {
+    const sorted = nations.slice().sort((a, b) => (b.peakYear?.co2Mt || 0) - (a.peakYear?.co2Mt || 0));
+    const lines = sorted.map((n) => `${n.countryName} peaked in ${n.peakYear?.year || '—'} at ${n.peakYear?.co2Mt || '—'} Mt CO₂ (${n.selectedYearCo2Mt ?? '—'} Mt in ${yr})`);
+    answer = `Comparing the 25-year archive across all three countries: ${lines.join('; ')}. ${sorted[0].countryName} holds the single largest recorded smoke-carbon spike in the dataset.`;
+  } else if (/forest|national forest|woods|corridor/.test(q) && topForests.length) {
+    const top3 = topForests.slice(0, 3).map((f) => `${f.name}${f.region ? ` (${f.region})` : ''} with ${f.totalDetections.toLocaleString()} detections`).join(', ');
+    answer = `In ${cName}, the busiest catalogued fire areas across 2002–2026 are ${top3}. Today's forecast concentrates future smoke risk around ${lead}.`;
+  } else if (/my pin|near me|local|city|town|danger|safe/.test(q) && pin) {
+    answer = `Around ${pin.label}, direct fire threat is ${pin.riskPct}% while seasonal smoke haze odds are ${pin.smokeRiskPct}%. Fires were detected in ${pin.activeYearsCount} of 25 seasons (closest ${pin.nearestKm ?? '—'} km${pin.topForest ? `, mostly near ${pin.topForest}` : ''}), so smoky air is a more frequent concern than direct flames.`;
+  } else if (histYrMatch && Array.isArray(ctx.timeline25Yr)) {
+    const qYr = Number(histYrMatch[1]);
+    const row = ctx.timeline25Yr.find((r) => r.yr === qYr);
+    if (row) {
+      answer = `In ${qYr}, ${cName} logged ${row.co2Mt ?? '—'} Mt of CO₂, ${row.pm25Kt ?? '—'} kt of fine PM₂.₅ smoke, and ${row.frpMw ? `${row.frpMw.toLocaleString()} MW` : 'archived'} fire heat (${row.modis ? `${row.modis.toLocaleString()} MODIS` : 'VIIRS-era'} detections). Click Apply below to jump the map straight to ${qYr}.`;
+    }
+  }
+
+  if (!answer) {
+    if (/why|cause|driver|peak|surge|high/.test(q)) {
+      answer = co2Mt
+        ? `In ${yr}, ${cName} released ${co2Mt} Mt of CO₂${ctx.selectedYearRank ? ` (rank #${ctx.selectedYearRank} of 24 years)` : ''}, led by burning in ${lead}. The biggest spikes—like ${peakStr || yr}—happen when hot, dry summer winds overlap lightning storms across dense forests.`
+        : `Across ${cName}'s record, major spikes happen when multi-week dry spells cure forests quickly around ${lead}${peakStr ? `, such as ${peakStr}` : ''}.`;
+    } else if (/smoke|pm2|air|haze|carbon|co2/.test(q)) {
+      answer = co2Mt && pm25Kt
+        ? `In ${yr}, ${cName} released ${co2Mt} Mt CO₂ and ${pm25Kt} kt of fine PM₂.₅ smoke particles, mostly from ${lead}. Deep forest soil and peat smolder slowly, making extra PM₂.₅ haze that drifts hundreds of kilometers downwind.`
+        : `Smoldering forest ground fuels in ${lead} produce heavy PM₂.₅ smoke and black carbon that travel far downwind even when flames stay remote.`;
+    } else if (suggestedScenario) {
+      const nextH = suggestedScenario.horizonYear || hYr;
+      const nextW = suggestedScenario.warmingPct ?? wPct;
+      answer = `Testing ${nextH} at +${nextW}% dry-season stress pushes fire heat higher around ${lead} (currently +${ctx.projectedFrpPct ?? 25}% at ${hYr}/+${wPct}%) and widens high-risk smoke corridors. Click Apply below to update the map and charts.`;
+    } else {
+      answer = `In ${cName} (${yr}${co2Mt ? `: ${co2Mt} Mt CO₂` : ''}), most fire activity centers on ${lead}${peakStr ? `, with record peaks in ${peakStr}` : ''}. Ask me to compare Canada, USA, and Russia, check a specific year (like 2021 or 2023), inspect top forests, or test a +35% 2035 scenario.`;
+    }
   }
 
   return {
     answer,
-    takeaway: `${cName} · Peak benchmark: ${peakStr || yr} · Focus corridor: ${lead}`,
+    takeaway: `${cName} · Peak record: ${peakStr || yr} · Main area: ${lead}`,
     suggestedScenario,
   };
 }
@@ -422,8 +537,11 @@ export function computeLocalFireRisk({
   const totalYears = Array.isArray(grids) && grids.length ? grids.length : 25;
 
   let activeYearsCount = 0;
+  let closeActiveYears = 0;
   let totalNearbyDetections = 0;
+  let weightedDetections = 0;
   let peakFrpMw = 0;
+  let closePeakFrpMw = 0;
   let nearestKm = Infinity;
   let peakYear = null;
   let peakYearDetections = 0;
@@ -432,6 +550,7 @@ export function computeLocalFireRisk({
   for (const g of grids || []) {
     const feats = Array.isArray(g?.features) ? g.features : [];
     let yearDet = 0;
+    let yearClose = false;
     for (let i = 0; i < feats.length; i += 1) {
       const f = feats[i];
       const coords = f?.geometry?.coordinates;
@@ -439,7 +558,7 @@ export function computeLocalFireRisk({
       const fLon = Number(coords[0]);
       const fLat = Number(coords[1]);
       if (!Number.isFinite(fLat) || !Number.isFinite(fLon)) continue;
-      // Fast coarse bounding pre-filter (~1.4 deg lat) before Haversine
+
       if (Math.abs(fLat - safeLat) <= 2.2) {
         const dKm = haversineKm(safeLat, safeLon, fLat, fLon);
         if (dKm < nearestKm) nearestKm = dKm;
@@ -447,9 +566,17 @@ export function computeLocalFireRisk({
           const p = f.properties || {};
           const cnt = Math.max(1, Number(p.count) || 1);
           const mFrp = Number(p.max_frp) || Number(p.frp_sum) || 0;
+          // Distance-decayed proximity weight: remote wilderness (>55 km) adds far less direct threat
+          const distWeight = dKm <= 25 ? 1.0 : dKm <= 55 ? 0.32 : 0.07;
+
           yearDet += cnt;
           totalNearbyDetections += cnt;
+          weightedDetections += cnt * distWeight;
           if (mFrp > peakFrpMw) peakFrpMw = mFrp;
+          if (dKm <= 35) {
+            yearClose = true;
+            if (mFrp > closePeakFrpMw) closePeakFrpMw = mFrp;
+          }
           if (p.forest && !String(p.forest).startsWith('Other forest')) {
             nearbyForestCounts.set(p.forest, (nearbyForestCounts.get(p.forest) || 0) + cnt);
           }
@@ -461,74 +588,12 @@ export function computeLocalFireRisk({
     }
     if (yearDet > 0) {
       activeYearsCount += 1;
+      if (yearClose) closeActiveYears += 1;
       if (yearDet > peakYearDetections) {
         peakYearDetections = yearDet;
         peakYear = g.year;
       }
     }
-  }
-
-  const avgAnnualDetections = totalNearbyDetections / Math.max(1, totalYears);
-  const yearFreq = activeYearsCount / Math.max(1, totalYears);
-  const densityScore = clamp(Math.log10(1 + avgAnnualDetections) / 2.55, 0, 1);
-  const frpScore = clamp(Math.log10(1 + peakFrpMw) / 3.45, 0, 1);
-
-  let historicalPct;
-  if (activeYearsCount > 0) {
-    historicalPct = Math.round(clamp(yearFreq * 48 + densityScore * 30 + frpScore * 12, 4, 86));
-  } else if (Number.isFinite(nearestKm) && nearestKm < Infinity) {
-    historicalPct = Math.max(2, Math.round(14 * Math.exp(-Math.max(0, nearestKm - radiusKm) / 140)));
-  } else {
-    historicalPct = 4;
-  }
-
-  const forecast = scope ? computeForecast({ scope, horizonYear, warmingPct }) : { multiplier: 1.18 };
-  const scenarioLift = clamp((forecast.multiplier - 1) * 0.42, 0, 0.34);
-  const riskPct = Math.round(clamp(historicalPct * (1 + scenarioLift) + (Number(warmingPct) || 0) * 0.1, 2, 95));
-
-  let tier;
-  let tierClass;
-  let summary;
-  let advice;
-
-  if (riskPct >= 75) {
-    tier = 'High';
-    tierClass = 'is-high';
-    summary = `Frequent satellite fire clusters logged within ${radiusKm} km across ${activeYearsCount} of ${totalYears} seasons.`;
-    advice = [
-      'Take extra seasonal caution: check daily local fire-danger ratings and follow all regional burn bans.',
-      'On smoky summer days, keep windows closed and run a clean indoor air filter or purifier.',
-      'Keep a tidy, trimmed perimeter around buildings—clear dry leaves, pine needles, and stacked brush.',
-    ];
-  } else if (riskPct >= 50) {
-    tier = 'Elevated';
-    tierClass = 'is-elevated';
-    summary = `Recurring seasonal fire detections within ${radiusKm} km (${activeYearsCount} active years observed).`;
-    advice = [
-      'Take standard dry-season caution with outdoor grills, campfires, and equipment sparks.',
-      'Keep an eye on regional air quality (AQI) updates when winds shift during late summer.',
-      'Clear dry grass and dead branches a few paces away from decks, sheds, and fences.',
-    ];
-  } else if (riskPct >= 25) {
-    tier = 'Moderate';
-    tierClass = 'is-moderate';
-    summary = `Occasional fire activity observed within ${radiusKm} km during warmer, drier summers.`;
-    advice = [
-      'Take basic caution during hot, breezy weeks and check municipal rules before outdoor burning.',
-      'Monitor local smoke advisories—even moderate distant fires can bring brief haze downwind.',
-      'Store firewood away from siding and sweep dry yard debris from gutters periodically.',
-    ];
-  } else {
-    tier = 'Low';
-    tierClass = 'is-low';
-    summary = activeYearsCount > 0
-      ? `Light historical fire activity within ${radiusKm} km (${activeYearsCount} of ${totalYears} years).`
-      : `Historically quiet fire zone; no active grid clusters logged within ${radiusKm} km.`;
-    advice = [
-      'Routine caution is plenty: follow local campfire safety rules and avoid burning in gusty weather.',
-      'Check regional air-quality alerts on hazy summer afternoons, as smoke plumes travel far.',
-      'Keep gutters and yard corners free of dry leaves as part of normal seasonal upkeep.',
-    ];
   }
 
   let topForest = null;
@@ -540,6 +605,87 @@ export function computeLocalFireRisk({
     }
   }
 
+  const avgAnnualDetections = totalNearbyDetections / Math.max(1, totalYears);
+  const yearFreq = activeYearsCount / Math.max(1, totalYears);
+  const closeFreq = closeActiveYears / Math.max(1, totalYears);
+  const weightedAvg = weightedDetections / Math.max(1, totalYears);
+  const weightedDensityScore = clamp(Math.log10(1 + weightedAvg) / 2.6, 0, 1);
+  const densityScore = clamp(Math.log10(1 + avgAnnualDetections) / 2.55, 0, 1);
+  const closeFrpScore = clamp(Math.log10(1 + closePeakFrpMw) / 3.5, 0, 1);
+  const frpScore = clamp(Math.log10(1 + peakFrpMw) / 3.45, 0, 1);
+
+  // Realistic personal fire danger (capped <= 55% because regional detections rarely burn an entire town)
+  let baseThreat;
+  if (closeActiveYears > 0) {
+    baseThreat = clamp(closeFreq * 18 + weightedDensityScore * 16 + closeFrpScore * 6, 3, 42);
+  } else if (activeYearsCount > 0) {
+    baseThreat = clamp(yearFreq * 10 + weightedDensityScore * 9 + frpScore * 3, 2, 18);
+  } else if (Number.isFinite(nearestKm) && nearestKm < Infinity) {
+    baseThreat = Math.max(1, Math.round(7 * Math.exp(-Math.max(0, nearestKm - radiusKm) / 140)));
+  } else {
+    baseThreat = 2;
+  }
+
+  const forecast = scope ? computeForecast({ scope, horizonYear, warmingPct }) : { multiplier: 1.18 };
+  const scenarioLift = clamp((forecast.multiplier - 1) * 0.34, 0, 0.28);
+  const stressPct = Number(warmingPct) || 0;
+  const riskPct = Math.round(clamp(baseThreat * (1 + scenarioLift) + stressPct * 0.14, 1, 55));
+
+  // Separate smoke-haze odds (smoke travels far even when direct fire threat stays low)
+  let smokeBase;
+  if (activeYearsCount > 0) {
+    smokeBase = clamp(yearFreq * 36 + densityScore * 28 + frpScore * 10, 12, 74);
+  } else if (Number.isFinite(nearestKm) && nearestKm < Infinity) {
+    smokeBase = Math.max(8, Math.round(28 * Math.exp(-Math.max(0, nearestKm - radiusKm) / 260)));
+  } else {
+    smokeBase = 10;
+  }
+  const smokeRiskPct = Math.round(clamp(smokeBase * (1 + scenarioLift * 0.7) + stressPct * 0.25, 8, 86));
+
+  const nearestRounded = Number.isFinite(nearestKm) && nearestKm < Infinity ? Math.round(nearestKm) : null;
+  const hYr = Number(horizonYear) || 2030;
+
+  let tier;
+  let tierClass;
+  let summary;
+  if (riskPct >= 36) {
+    tier = 'Elevated';
+    tierClass = 'is-high';
+    summary = `Fires have come close to ${label} (${closeActiveYears} of ${totalYears} yrs within 35 km), though widespread smoke haze (${smokeRiskPct}% odds) is still far more likely than direct flames.`;
+  } else if (riskPct >= 20) {
+    tier = 'Moderate';
+    tierClass = 'is-elevated';
+    summary = `Past fires burned inside 100 km of ${label} during ${activeYearsCount} of ${totalYears} yrs—personal flame danger stays moderate, while smoky air (${smokeRiskPct}% odds) is common in dry summers.`;
+  } else if (riskPct >= 9) {
+    tier = 'Low–Mod';
+    tierClass = 'is-moderate';
+    summary = `Most fires near ${label} stayed ${nearestRounded ? `${nearestRounded}+ km` : 'well'} outside town (${activeYearsCount} active yrs), bringing occasional summer haze (${smokeRiskPct}% odds) rather than direct threat.`;
+  } else {
+    tier = 'Low';
+    tierClass = 'is-low';
+    summary = activeYearsCount > 0
+      ? `Only light distant burning occurred near ${label} (${activeYearsCount} of ${totalYears} yrs), keeping direct fire risk low.`
+      : `Quiet fire history around ${label}${nearestRounded ? ` (closest recorded fire was ${nearestRounded} km away)` : ''}.`;
+  }
+
+  // Personalized plain-English everyday advice referencing place, distance, forest, peak year, and stress
+  const forestPhrase = topForest ? ` around ${topForest}` : '';
+  const peakPhrase = peakYear ? ` (busiest year: ${peakYear})` : '';
+
+  const tip1 = closeActiveYears > 0 && nearestRounded !== null && nearestRounded <= 35
+    ? `Closest fires near ${label} came within ${nearestRounded} km${forestPhrase}${peakPhrase}. Keep dry leaves, pine needles, and firewood cleared a few steps away from your siding and deck.`
+    : activeYearsCount > 0
+      ? `Past fires near ${label} stayed ${nearestRounded ?? '35'}+ km out${forestPhrase}${peakPhrase}. Direct danger is low—just use normal caution with grills and campfires on breezy days.`
+      : `No fires were spotted within ${radiusKm} km of ${label}${nearestRounded ? ` (closest was ${nearestRounded} km away)` : ''}. Direct fire danger is very low; standard outdoor fire safety is plenty.`;
+
+  const tip2 = smokeRiskPct >= 45
+    ? `Drifting smoke is the main summer issue for ${label} (${smokeRiskPct}% seasonal haze odds). Keep a clean HVAC or HEPA filter ready and check local air quality (AQI) on hazy days.`
+    : `Even when local fire risk is low, summer wind can carry distant forest smoke toward ${label} (${smokeRiskPct}% haze odds)—close windows and run indoor air circulation if skies turn smoky.`;
+
+  const tip3 = stressPct >= 25
+    ? `With a +${stressPct}% drier-summer test for ${hYr}, check local burn bans before yard burning or off-road parking on dry grass around ${label}.`
+    : `Looking toward ${hYr} (+${stressPct}% dry stress), follow local burn rules around ${label} and avoid mower or equipment sparks during hot, windy afternoons.`;
+
   return {
     countryId,
     label,
@@ -547,21 +693,22 @@ export function computeLocalFireRisk({
     lon: Number(safeLon.toFixed(3)),
     radiusKm,
     riskPct,
-    historicalPct,
+    smokeRiskPct,
+    historicalPct: Math.round(baseThreat),
     tier,
     tierClass,
     activeYearsCount,
+    closeActiveYears,
     totalYears,
     totalNearbyDetections,
     avgAnnualDetections: Math.round(avgAnnualDetections),
     peakFrpMw: Math.round(peakFrpMw),
-    nearestKm: Number.isFinite(nearestKm) && nearestKm < Infinity ? Math.round(nearestKm) : null,
+    nearestKm: nearestRounded,
     peakYear,
     topForest,
-    horizonYear: Number(horizonYear) || 2030,
-    warmingPct: Number(warmingPct) ?? 15,
+    horizonYear: hYr,
+    warmingPct: stressPct,
     summary,
-    advice,
+    advice: [tip1, tip2, tip3],
   };
 }
-

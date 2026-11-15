@@ -120,8 +120,8 @@ export function spinner(el, label = 'Loading…') {
     if (!(child.nodeType === 1 && child.id)) child.remove();
   }
   const wrap = document.createElement('div');
-  wrap.className = 'ember-loading';
-  wrap.innerHTML = `<span class="ember-spinner" aria-hidden="true"></span><span>${escHtml(label)}</span>`;
+  wrap.className = 'vr-loading';
+  wrap.innerHTML = `<span class="vr-spinner" aria-hidden="true"></span><span>${escHtml(label)}</span>`;
   el.appendChild(wrap);
   return wrap;
 }

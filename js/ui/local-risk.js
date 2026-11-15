@@ -1,6 +1,6 @@
 // js/ui/local-risk.js
-// Purpose: Local Fire Risk Near You (#local-risk) — lets users pick a country & city or drop a pin on the map
-//          to compute combined historical + projected wildfire likelihood within 100 km with calm practical advice.
+// Purpose: Local Fire & Smoke Risk (#local-risk) — pick a country & city or drop a pin on the map
+//          to see realistic personal fire risk %, separate smoke haze odds, and personalized everyday tips.
 
 import { CITIES_BY_COUNTRY, computeLocalFireRisk } from '../forecast.js';
 
@@ -57,9 +57,10 @@ const STYLE = `
   display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: center;
   padding: 10px 12px; border-radius: 6px; border: 1px solid var(--c-edge); background: var(--c-panel);
 }
-.lrk-pct-box { display: flex; flex-direction: column; align-items: flex-start; min-width: 84px; }
+.lrk-pct-box { display: flex; flex-direction: column; align-items: flex-start; min-width: 96px; }
+.lrk-pct-lbl { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-muted); margin-bottom: 2px; }
 .lrk-pct {
-  font-family: var(--f-mono); font-size: 30px; font-weight: 700; line-height: 1;
+  font-family: var(--f-mono); font-size: 29px; font-weight: 700; line-height: 1;
   font-variant-numeric: tabular-nums; letter-spacing: -0.02em; color: var(--c-ink);
 }
 .lrk-pct.is-high { color: #B91C1C; }
@@ -88,10 +89,11 @@ const STYLE = `
 .lrk-fill.is-low { background: linear-gradient(90deg, #2DD4BF, #0D9488); }
 .lrk-summary { margin: 0; font-size: 11.5px; line-height: 1.4; color: var(--c-muted); }
 
-.lrk-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.lrk-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
 .lrk-stat { background: var(--c-paper); border: 1px solid var(--c-edge); border-radius: 5px; padding: 5px 8px; min-width: 0; }
 .lrk-stat-k { display: block; font-size: 9.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-muted); }
 .lrk-stat-v { display: block; font-family: var(--f-mono); font-size: 12px; font-weight: 700; color: var(--c-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lrk-stat-v.is-smoke { color: #6A3093; }
 
 .lrk-advice {
   padding: 8px 11px; border-radius: 5px; border: 1px solid var(--c-edge);
@@ -102,7 +104,7 @@ const STYLE = `
 .lrk-advice-list { margin: 0; padding-left: 16px; display: flex; flex-direction: column; gap: 3px; font-size: 11.5px; line-height: 1.38; color: var(--c-muted); }
 .lrk-advice-list li::marker { color: var(--c-fire); }
 
-@media (max-width: 520px) {
+@media (max-width: 560px) {
   .lrk-controls { grid-template-columns: 1fr; }
   .lrk-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -117,7 +119,7 @@ function defaultCityFor(countryId) {
 
 export async function mount(el, ctx) {
   const { store, data, theme } = ctx;
-  const { injectCss, escHtml, fmtCompact, spinner } = theme;
+  const { injectCss, escHtml, spinner } = theme;
   injectCss('lrk', STYLE);
 
   const regions = await data.getRegions();
@@ -131,8 +133,8 @@ export async function mount(el, ctx) {
   root.innerHTML = `
     <div class="lrk-head">
       <div class="lrk-title-wrap">
-        <h3 class="lrk-title">Local Fire Risk Near You</h3>
-        <span class="lrk-sub">Pick a city or drop a pin on the map to check 100 km historical &amp; projected wildfire likelihood</span>
+        <h3 class="lrk-title">Local Fire &amp; Smoke Risk Near You</h3>
+        <span class="lrk-sub">Pick a city or drop a map pin to see realistic local fire odds, smoke risk, and tailored tips</span>
       </div>
       <div class="lrk-countries" role="group" aria-label="Select country for local risk" data-ref="cGroup"></div>
     </div>
@@ -141,7 +143,7 @@ export async function mount(el, ctx) {
       <button type="button" class="lrk-pin-btn" data-ref="pinBtn" aria-pressed="false">${PIN_ICON}<span data-ref="pinBtnLabel">Drop Pin on Map</span></button>
     </div>
     <div class="lrk-pin-hint" data-ref="pinHint" hidden>
-      <span>Click anywhere inside the map to place your 100 km risk pin.</span>
+      <span>Click anywhere on the map to place your 100 km check pin.</span>
       <button type="button" class="lrk-cbtn" data-ref="cancelPin">Cancel</button>
     </div>
     <div class="lrk-body" data-ref="body"></div>
@@ -238,7 +240,7 @@ export async function mount(el, ctx) {
     pinBtnLabel.textContent = state.pinMode ? 'Click on Map…' : 'Drop Pin on Map';
     pinHint.hidden = !state.pinMode;
 
-    spinner(body, `Scanning ${countryId.toUpperCase()} satellite grids near ${pin.label}…`);
+    spinner(body, `Checking ${countryId.toUpperCase()} fire maps near ${pin.label}…`);
 
     const [scope, grids] = await Promise.all([
       data.getScope(state),
@@ -258,17 +260,15 @@ export async function mount(el, ctx) {
     });
 
     const coordStr = `${Math.abs(risk.lat).toFixed(2)}°${risk.lat >= 0 ? 'N' : 'S'}, ${Math.abs(risk.lon).toFixed(2)}°${risk.lon >= 0 ? 'E' : 'W'}`;
-    const detPerYr = risk.avgAnnualDetections > 0 ? `${fmtCompact(risk.avgAnnualDetections)} / yr` : '0 / yr';
-    const thirdStatLabel = risk.peakFrpMw > 0 ? 'Peak Fire Power' : 'Nearest Fire';
-    const thirdStatVal = risk.peakFrpMw > 0
-      ? `${fmtCompact(risk.peakFrpMw)} MW`
-      : (risk.nearestKm !== null ? `${risk.nearestKm.toLocaleString()} km` : '—');
+    const nearestStr = risk.nearestKm !== null ? `${risk.nearestKm.toLocaleString()} km` : '—';
+    const peakYrStr = risk.peakYear ? String(risk.peakYear) : 'None';
 
     body.innerHTML = `
       <div class="lrk-hero">
         <div class="lrk-pct-box">
+          <span class="lrk-pct-lbl">Direct Fire Threat</span>
           <span class="lrk-pct ${risk.tierClass}">${risk.riskPct}%</span>
-          <span class="lrk-tier ${risk.tierClass}">${escHtml(risk.tier)} Risk</span>
+          <span class="lrk-tier ${risk.tierClass}">${escHtml(risk.tier)}</span>
         </div>
         <div class="lrk-meter-col">
           <div class="lrk-loc-row">
@@ -283,20 +283,24 @@ export async function mount(el, ctx) {
       </div>
       <div class="lrk-metrics">
         <div class="lrk-stat">
-          <span class="lrk-stat-k">Active Seasons (100 km)</span>
-          <span class="lrk-stat-v">${risk.activeYearsCount} / ${risk.totalYears} yrs</span>
+          <span class="lrk-stat-k">Smoke Haze Odds</span>
+          <span class="lrk-stat-v is-smoke">${risk.smokeRiskPct}%</span>
         </div>
         <div class="lrk-stat">
-          <span class="lrk-stat-k">Nearby Detections</span>
-          <span class="lrk-stat-v">${detPerYr}</span>
+          <span class="lrk-stat-k">Fire Years (100 km)</span>
+          <span class="lrk-stat-v">${risk.activeYearsCount} / ${risk.totalYears}</span>
         </div>
         <div class="lrk-stat">
-          <span class="lrk-stat-k">${thirdStatLabel}</span>
-          <span class="lrk-stat-v">${escHtml(thirdStatVal)}</span>
+          <span class="lrk-stat-k">Closest Fire</span>
+          <span class="lrk-stat-v">${escHtml(nearestStr)}</span>
+        </div>
+        <div class="lrk-stat">
+          <span class="lrk-stat-k">Busiest Year</span>
+          <span class="lrk-stat-v">${escHtml(peakYrStr)}</span>
         </div>
       </div>
       <div class="lrk-advice">
-        <span class="lrk-advice-head">Practical Everyday Advice (${risk.horizonYear} · +${risk.warmingPct}% stress)</span>
+        <span class="lrk-advice-head">Tailored Safety Tips for ${escHtml(risk.label)} (${risk.horizonYear} · +${risk.warmingPct}%)</span>
         <ul class="lrk-advice-list">
           ${risk.advice.map((tip) => `<li>${escHtml(tip)}</li>`).join('')}
         </ul>

@@ -1,5 +1,5 @@
-// server.ts — Express HTTP server for Ember Observatory (port 3000)
-// Serves Vite middleware in dev, dist/ in production, and POST /api/forecast powered by Gemini AI.
+// server.ts — Express HTTP server for Variant-R (port 3000)
+// Serves Vite middleware in dev, dist/ in production, and AI endpoints powered by Gemini.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -15,8 +15,8 @@ const aiCache = new Map<string, { ts: number; data: unknown }>();
 const FORECAST_SCHEMA = {
   type: Type.OBJECT,
   properties: {
-    headline: { type: Type.STRING, description: 'Vivid, concise 8-12 word analytical headline naming region and year' },
-    riskOutlook: { type: Type.STRING, description: '2 clear, engaging scientific sentences comparing historical benchmark years to scenario stress' },
+    headline: { type: Type.STRING, description: 'Clear 8-12 word headline in plain English naming region and year' },
+    riskOutlook: { type: Type.STRING, description: '2 clear, easy-to-read sentences comparing past peak years to the selected dry-weather stress test' },
     priorityZones: {
       type: Type.ARRAY,
       items: {
@@ -24,12 +24,12 @@ const FORECAST_SCHEMA = {
         properties: {
           region: { type: Type.STRING },
           riskLevel: { type: Type.STRING, description: 'One of: Extreme, High, Elevated' },
-          driver: { type: Type.STRING, description: 'Specific 5-9 word biophysical wildfire driver' },
+          driver: { type: Type.STRING, description: 'Simple 5-8 word wildfire cause' },
         },
         required: ['region', 'riskLevel', 'driver'],
       },
     },
-    smokeNote: { type: Type.STRING, description: 'One incisive sentence on downwind PM2.5 smoke haze, black-carbon transport, and airshed risk' },
+    smokeNote: { type: Type.STRING, description: 'One plain-English sentence on downwind PM2.5 smoke haze and air quality' },
   },
   required: ['headline', 'riskOutlook', 'priorityZones', 'smokeNote'],
 };
@@ -37,17 +37,19 @@ const FORECAST_SCHEMA = {
 const ASK_SCHEMA = {
   type: Type.OBJECT,
   properties: {
-    answer: { type: Type.STRING, description: '2-4 crisp, natural, authoritative sentences answering the user using the supplied metrics and historical context. Plain prose without markdown bullets.' },
-    takeaway: { type: Type.STRING, description: 'Short 6-10 word bottom-line insight' },
+    answer: { type: Type.STRING, description: '2-4 crisp, easy-to-understand sentences answering the user by searching the 25-year table, 3-country comparison, top forests, pollutants, or active local pin. Plain prose without markdown bullets.' },
+    takeaway: { type: Type.STRING, description: 'Short 6-10 word bottom-line finding' },
     suggestedScenario: {
       type: Type.OBJECT,
       nullable: true,
-      description: 'Populate ONLY if the user asks to test a scenario, change horizon/warming stress, jump to a peak year, or view predicted hotspots on the map.',
+      description: 'Populate ONLY if the user asks to compare/switch country, jump to a year, switch metric, test warming stress, or view predicted zones on the map.',
       properties: {
+        countryId: { type: Type.STRING, description: 'One of canada, usa, or russia if switching country is helpful' },
         horizonYear: { type: Type.INTEGER, description: 'One of 2027, 2030, or 2035 if relevant' },
         warmingPct: { type: Type.INTEGER, description: 'Multiple of 5 from 0 to 40 if relevant' },
-        showPredictedOverlay: { type: Type.BOOLEAN, description: 'Set true if user asks to show/overlay predicted hotspots on map' },
-        focusYear: { type: Type.INTEGER, description: 'Year 2002-2026 if recommending inspecting a specific historical year' },
+        showPredictedOverlay: { type: Type.BOOLEAN, description: 'Set true if user asks to show predicted zones on the map' },
+        focusYear: { type: Type.INTEGER, description: 'Year 2002-2026 if recommending inspecting a specific past year' },
+        focus: { type: Type.STRING, description: 'Optional variable id: fire_frp, fire_count, viirs_count, co2_em, or pm25_em' },
       },
     },
   },
@@ -61,6 +63,20 @@ function getClient() {
     apiKey,
     httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
   });
+}
+
+async function generateWithTimeout<T>(promise: Promise<T>, ms = 10000): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(`Gemini timeout after ${ms}ms`)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 async function createApp() {
@@ -88,7 +104,7 @@ async function createApp() {
       projectedFrpPct: Number(body.projectedFrpPct) || 0,
       projectedCo2Pct: Number(body.projectedCo2Pct) || 0,
       plumeRiskScore: Number(body.plumeRiskScore) || 50,
-      plumeTier: String(body.plumeTier || 'Elevated'),
+      plumeTier: String(body.plumeTier || 'Moderate'),
       topZones: Array.isArray(body.topZones) ? body.topZones : [],
     });
 
@@ -108,16 +124,16 @@ async function createApp() {
       : '';
 
     const prompt = [
-      'You are a field-seasoned Earth-science wildfire and atmospheric chemistry analyst writing an editorial intelligence brief—direct, vivid, never robotic or repetitive.',
-      `Region: ${body.countryName || scopePath}. Scenario: Horizon=${horizonYear}, Dry-Season Stress=+${warmingPct}%.`,
-      `Statistical trend metrics: Projected FRP change=+${body.projectedFrpPct}% vs historical median; Projected CAMS GFAS CO2 change=+${body.projectedCo2Pct}%; Smoke Plume Risk=${body.plumeRiskScore}/100 (${body.plumeTier}).`,
-      peaks ? `Historical peak carbon years in archive: ${peaks}.` : '',
-      `Top emerging fire corridors: ${zonesText}.`,
-      'Ground every quantitative claim strictly in these figures without inventing outside statistics. Highlight ecological mechanics (fuel curing, peat/duff smoldering, lightning blowups, smoke transport).',
+      'You write clear, plain-English wildfire forecast summaries for Variant-R.',
+      `Country: ${body.countryName || scopePath}. Scenario: Horizon=${horizonYear}, Dry-Weather Stress=+${warmingPct}%.`,
+      `Model output: Fire heat change=+${body.projectedFrpPct}% vs typical year; Smoke CO2 change=+${body.projectedCo2Pct}%; Smoke Haze Score=${body.plumeRiskScore}/100 (${body.plumeTier}).`,
+      peaks ? `Biggest historical carbon years: ${peaks}.` : '',
+      `Top fire-prone regions: ${zonesText}.`,
+      'Use only these facts without inventing outside statistics. Keep wording simple, direct, and easy for everyday readers to understand.',
     ].filter(Boolean).join('\n');
 
     try {
-      const response = await ai.models.generateContent({
+      const response = await generateWithTimeout(ai.models.generateContent({
         model: 'gemini-4-hydrogen',
         contents: prompt,
         config: {
@@ -125,7 +141,7 @@ async function createApp() {
           responseMimeType: 'application/json',
           responseSchema: FORECAST_SCHEMA,
         },
-      });
+      }));
       const text = response.text;
       if (!text) throw new Error('Empty response from Gemini API');
       const brief = JSON.parse(text);
@@ -158,19 +174,19 @@ async function createApp() {
     }
 
     const histText = history.length
-      ? history.map((h: { q?: string; a?: string }) => `User: ${h.q}\nAnalyst: ${h.a}`).join('\n')
+      ? history.map((h: { q?: string; a?: string }) => `User: ${h.q}\nVariant-R: ${h.a}`).join('\n')
       : 'None';
 
     const prompt = [
-      'You are the conversational Earth-science wildfire analyst inside Ember Observatory (covering USA, Canada, and Russia from 2002 to 2026 via full NASA MODIS/VIIRS spatial grids + Copernicus CAMS GFAS emissions, plus 2027-2035 projections and a 100 km local risk estimator).',
-      'Be articulate, approachable, insightful, and grounded strictly in the provided archive telemetry—never invent numbers outside this context, and give calm, practical everyday advice if asked about community safety.',
-      `Active dashboard state JSON:\n${JSON.stringify(context)}`,
+      'You are the Variant-R wildfire data search assistant. You have a complete digest covering 2002–2026 fire heat, MODIS/VIIRS detections, 8 CAMS smoke gases, top forests, Canada/USA/Russia benchmarks, 2027–2035 projections, and the user’s active 100 km local pin.',
+      'Search this data digest creatively to spot real patterns, ratios (like smoke per fire), record years, or country contrasts. Write in simple, plain English, stay strictly factual to the JSON below, and give calm everyday safety advice if asked.',
+      `Data digest JSON:\n${JSON.stringify(context)}`,
       `Recent conversation:\n${histText}`,
       `User question: ${question}`,
     ].join('\n\n');
 
     try {
-      const response = await ai.models.generateContent({
+      const response = await generateWithTimeout(ai.models.generateContent({
         model: 'gemini-4-hydrogen',
         contents: prompt,
         config: {
@@ -178,7 +194,7 @@ async function createApp() {
           responseMimeType: 'application/json',
           responseSchema: ASK_SCHEMA,
         },
-      });
+      }));
       const text = response.text;
       if (!text) throw new Error('Empty response from Gemini API');
       const parsed = JSON.parse(text);
@@ -211,7 +227,7 @@ async function createApp() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Ember Observatory server listening on http://0.0.0.0:${PORT}`);
+    console.log(`Variant-R server listening on http://0.0.0.0:${PORT}`);
   });
 }
 

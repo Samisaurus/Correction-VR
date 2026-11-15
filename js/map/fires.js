@@ -1,6 +1,6 @@
 // js/map/fires.js
 // Purpose: wildfire dots sorted ascending by detection density per 5 km^2 with translucent
-//          yellow-to-red layering and subtle GPU-interpolated ember breathing animation.
+//          yellow-to-red layering and subtle GPU-interpolated heat glow animation.
 
 const EMPTY = { type: 'FeatureCollection', features: [] };
 const KM_PER_DEG_LAT = 110.574;
@@ -130,7 +130,7 @@ export function addLayer(map, ctx) {
     },
   });
 
-  // Subtle GPU-interpolated ember pulse (~1.1s cycle), disabled when reduced motion is requested
+  // Subtle GPU-interpolated fire glow pulse (~1.1s cycle), disabled when reduced motion is requested
   const reducedMotion = typeof window.matchMedia === 'function'
     && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   let pulseHigh = false;

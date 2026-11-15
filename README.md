@@ -1,12 +1,6 @@
-# Ember to Ocean
+# Variant-R
 
-**NASA Space Apps 2026.** A single-page, white "lab report" site that follows one chain across three whole
-countries, 2012–2025: **wildfire → air quality (AOD) → water condition → salmon fishery money**, for Canada,
-the United States (incl. Alaska) and Russia, with one case-study basin each (Fraser, Yukon–Kuskokwim, Amur)
-where satellite water measurements make the full chain testable.
-
-Plain JavaScript ES modules, no build step, three CDN libraries (MapLibre GL 5, maplibre-contour 0.1.0,
-Observable Plot 0.6). Runs from any static server and from **GitHub Pages** as is.
+Wildfire activity, local community risk, atmospheric smoke emissions (CAMS GFAS), and 2027–2035 scenario outlooks across Canada, the United States (incl. Alaska), and Russia (2002–2026).
 
 ## Run it
 

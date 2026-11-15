@@ -1,7 +1,7 @@
 // js/charts/fig3-chain.js
-// Purpose: Fig. 3 (#fig3) — Combustion Plume & Atmospheric Footprint interactive visualization
+// Purpose: #fig3 — Smoke & Pollution Breakdown interactive visualization
 //          combining CAMS GFAS species spectrum (2003–2026), MODIS 2002 baseline fingerprint,
-//          regional/forest emission drivers, and a tailored Season Dispatch summary per (country, year).
+//          regional/forest emission drivers, and a tailored Season Summary per (country, year).
 
 import { getTimestampSummary } from '../summaries.js';
 
@@ -45,7 +45,7 @@ const STYLE = `
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
 }
 
-.f3-stage { min-height: 224px; animation: emberFadeIn 190ms var(--ease-out); }
+.f3-stage { min-height: 224px; animation: vrFadeIn 190ms var(--ease-out); }
 .f3-svg { display: block; width: 100%; height: auto; font-family: var(--f-sans); }
 
 .f3-sp-row { cursor: pointer; }
@@ -183,14 +183,14 @@ const STYLE = `
 const NS = 'http://www.w3.org/2000/svg';
 
 const SPECIES_META = [
-  { id: 'co2',  label: 'CO₂',   full: 'Carbon dioxide',     group: 'Climate',  color: '#D55E00', role: 'Primary greenhouse gas released by biomass combustion' },
-  { id: 'ch4',  label: 'CH₄',   full: 'Methane',            group: 'Climate',  color: '#E69F00', role: 'Potent short-lived greenhouse gas from smoldering fuels' },
-  { id: 'pm25', label: 'PM₂.₅', full: 'Fine Particulates',  group: 'Smoke',    color: '#7B3294', role: 'Breathable smoke aerosols driving acute regional haze' },
-  { id: 'co',   label: 'CO',    full: 'Carbon monoxide',    group: 'Smoke',    color: '#8A7F72', role: 'Incomplete combustion tracer elevated in deep duff burns' },
-  { id: 'oc',   label: 'OC',    full: 'Organic carbon',     group: 'Smoke',    color: '#A16207', role: 'Primary organic aerosol mass carrying semi-volatile organics' },
-  { id: 'bc',   label: 'BC',    full: 'Black carbon soot',  group: 'Reactive', color: '#334155', role: 'Light-absorbing soot accelerating snow/ice melt downwind' },
-  { id: 'nox',  label: 'NOx',   full: 'Nitrogen oxides',    group: 'Reactive', color: '#2B5FC7', role: 'Ozone & secondary nitrate precursor from hot crown flames' },
-  { id: 'so2',  label: 'SO₂',   full: 'Sulfur dioxide',     group: 'Reactive', color: '#0072B2', role: 'Sulfur emissions contributing to acidifying aerosol deposition' },
+  { id: 'co2',  label: 'CO₂',   full: 'Carbon dioxide',     group: 'Climate',  color: '#D55E00', role: 'Main warming gas released when forests burn' },
+  { id: 'ch4',  label: 'CH₄',   full: 'Methane',            group: 'Climate',  color: '#E69F00', role: 'Strong warming gas from slow, smoldering fires' },
+  { id: 'pm25', label: 'PM₂.₅', full: 'Fine Smoke Particles', group: 'Smoke',  color: '#7B3294', role: 'Tiny soot particles that cause unhealthy smoky air' },
+  { id: 'co',   label: 'CO',    full: 'Carbon monoxide',    group: 'Smoke',    color: '#8A7F72', role: 'Gas produced when damp ground cover smolders' },
+  { id: 'oc',   label: 'OC',    full: 'Organic carbon',     group: 'Smoke',    color: '#A16207', role: 'Sticky organic smoke particles carried by wind' },
+  { id: 'bc',   label: 'BC',    full: 'Black carbon soot',  group: 'Reactive', color: '#334155', role: 'Dark soot that speeds up snow and ice melting' },
+  { id: 'nox',  label: 'NOx',   full: 'Nitrogen oxides',    group: 'Reactive', color: '#2B5FC7', role: 'Gas from intense flames that helps form ground ozone' },
+  { id: 'so2',  label: 'SO₂',   full: 'Sulfur dioxide',     group: 'Reactive', color: '#0072B2', role: 'Sulfur gas from burning plant material and soil' },
 ];
 
 const SPECIES_MAP = new Map(SPECIES_META.map((s) => [s.id, s]));
@@ -218,7 +218,7 @@ export async function mount(el, ctx) {
   titleWrap.className = 'f3-title-wrap';
   const titleEl = document.createElement('h3');
   titleEl.className = 'f3-title';
-  titleEl.textContent = 'Combustion Plume & Atmospheric Footprint';
+  titleEl.textContent = 'Smoke & Pollution Breakdown';
   const subEl = document.createElement('span');
   subEl.className = 'f3-sub';
   titleWrap.append(titleEl, subEl);
@@ -226,11 +226,11 @@ export async function mount(el, ctx) {
   const tabsEl = document.createElement('div');
   tabsEl.className = 'f3-tabs';
   tabsEl.setAttribute('role', 'tablist');
-  tabsEl.setAttribute('aria-label', 'Atmospheric footprint analytical views');
+  tabsEl.setAttribute('aria-label', 'Smoke and pollution views');
 
   const VIEWS = [
-    { id: 'plume', label: 'Plume & Pollutants' },
-    { id: 'regions', label: 'Regional Drivers' },
+    { id: 'plume', label: 'Smoke Gases' },
+    { id: 'regions', label: 'Top Regions & Forests' },
   ];
   let activeTab = 'plume';
   let selectedSpecies = 'pm25';
@@ -290,18 +290,18 @@ export async function mount(el, ctx) {
       const co2Rank = ranks && ranks.co2 ? `#${ranks.co2}/${yearCount}` : '—';
       const co2Med = meds.co2 || 1;
       const co2Pct = Math.round(((emYr.co2 - co2Med) / co2Med) * 100);
-      subEl.textContent = `${yr}${yr === 2026 ? ' YTD (through Aug 31)' : ''} · CAMS GFAS · Total ${fmtMassExact(emYr.co2)} CO₂ (${co2Pct >= 0 ? '+' : ''}${co2Pct}% vs median · ${co2Rank})`;
+      subEl.textContent = `${yr}${yr === 2026 ? ' (Jan–Aug so far)' : ''} · Total CO₂: ${fmtMassExact(emYr.co2)} (${co2Pct >= 0 ? '+' : ''}${co2Pct}% vs. typical year · Rank ${co2Rank})`;
 
       const svg = svgEl('svg', {
         class: 'f3-svg',
         viewBox: '0 0 740 242',
         role: 'img',
-        'aria-label': `Forest fire emission spectrum for ${meta.name} in ${yr}`,
+        'aria-label': `Forest fire smoke breakdown for ${meta.name} in ${yr}`,
       });
 
-      svg.appendChild(svgEl('text', { class: 'f3-sp-hdr', x: '20', y: '14' }, 'Combustion Hub'));
-      svg.appendChild(svgEl('text', { class: 'f3-sp-hdr', x: '240', y: '14' }, 'Pollutant Mass'));
-      svg.appendChild(svgEl('text', { class: 'f3-sp-hdr', x: '454', y: '14' }, 'Deviation vs. 2003–2026 Median (%)'));
+      svg.appendChild(svgEl('text', { class: 'f3-sp-hdr', x: '20', y: '14' }, 'Fire Season'));
+      svg.appendChild(svgEl('text', { class: 'f3-sp-hdr', x: '240', y: '14' }, 'Amount Released'));
+      svg.appendChild(svgEl('text', { class: 'f3-sp-hdr', x: '454', y: '14' }, 'Compared to Typical Year (2003–2026)'));
       svg.appendChild(svgEl('text', { class: 'f3-sp-hdr', x: '724', y: '14', 'text-anchor': 'end' }, 'Rank'));
 
       const hubX = 82;
@@ -441,7 +441,7 @@ export async function mount(el, ctx) {
     const modisDet = yrRow ? (yrRow.modisTotal || yrRow.detections) : null;
     const medDet = summary ? summary.medianTotal : null;
     const detPct = modisDet && medDet ? Math.round(((modisDet - medDet) / medDet) * 100) : null;
-    subEl.textContent = `${yr} · Pre-GFAS MODIS Sensor Fingerprint (Copernicus CAMS GFAS starts 2003)`;
+    subEl.textContent = `${yr} · Early MODIS Fire Fingerprint (smoke gas tracking starts in 2003)`;
 
     const svg = svgEl('svg', {
       class: 'f3-svg',
@@ -531,7 +531,7 @@ export async function mount(el, ctx) {
     const yrRow = summary && summary.byYear ? summary.byYear.get(yr) : null;
     const fyList = summary && summary.forestYearsByYear ? summary.forestYearsByYear[yr] : null;
 
-    subEl.textContent = `${yr} · Spatial breakdown of leading ${meta.shortName} emission & fire corridors`;
+    subEl.textContent = `${yr} · Hardest-hit regions and forest areas in ${meta.shortName}`;
     stage.innerHTML = '';
 
     const grid = document.createElement('div');
@@ -661,7 +661,7 @@ export async function mount(el, ctx) {
     dispatchBody.textContent = summaryInfo.text;
 
     const [y0, y1] = meta.years || [2002, 2026];
-    cap.innerHTML = `${escHtml(meta.name)} (${y0}–${y1}). Atmospheric species from Copernicus CAMS GFAS (2003–2026); MODIS/VIIRS detections cover 2002–2026. Click any pollutant or switch views above.`;
+    cap.innerHTML = `${escHtml(meta.name)} (${y0}–${y1}). Smoke gas data covers 2003–2026 (CAMS GFAS); satellite fire counts cover 2002–2026. Click any gas or switch tabs above.`;
   }
 
   function renderActive(state) {
@@ -673,7 +673,7 @@ export async function mount(el, ctx) {
 
   async function build(state) {
     const my = ++token;
-    theme.spinner(stage, 'Loading atmospheric plume data…');
+    theme.spinner(stage, 'Loading smoke and pollution data…');
     const scope = await data.getScope(state);
     if (my !== token) return;
     current = scope && scope.meta ? scope : null;

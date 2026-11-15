@@ -82,7 +82,7 @@ test('buildDataManifest discovers csv_by_year folders, classifies summary files,
   const os = await import('node:os');
   const path = await import('node:path');
   const { buildDataManifest } = await import('../../vite.config.js');
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ember-manifest-'));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vr-manifest-'));
   try {
     const dir = path.join(tmp, 'USA_forest_fires_final', 'csv_by_year');
     const summaryDir = path.join(tmp, 'USA_forest_fires_final', 'data');
@@ -343,7 +343,26 @@ test('Canada 2019 & 2021 spatial fire-grid hotspots, monthly MODIS counts, and R
   assert.ok(grid2021.features.length > 1000, `expected >1000 gridded cells in Canada 2021, got ${grid2021.features.length}`);
 });
 
-test('computeLocalFireRisk returns valid probability, distance & calm everyday advice', async () => {
+test('computeBeforeAfterStats falls back to annual totals when monthly fire_count pauses post-2011', () => {
+  const series = {
+    variables: {
+      fire_count: {
+        annual: [[2012, 3000], [2013, 3200], [2014, 3100], [2015, 2900], [2016, 3300], [2017, 9400]],
+        monthly: [['2003-07', 400], ['2004-07', 410]],
+      },
+    },
+  };
+  const stats = computeBeforeAfterStats(series, {
+    years: [2002, 2026],
+    eventYears: [2017],
+  });
+  assert.ok(stats && stats.beforeAfter.length === 1);
+  assert.equal(stats.beforeAfter[0].basis, 'annual');
+  assert.equal(stats.beforeAfter[0].event, 2017);
+  assert.ok(stats.beforeAfter[0].mean_after > stats.beforeAfter[0].mean_before * 2);
+});
+
+test('computeLocalFireRisk returns realistic personal threat %, smoke haze odds & personalized advice', async () => {
   const { CITIES_BY_COUNTRY, computeLocalFireRisk } = await import('../forecast.js');
   assert.ok(CITIES_BY_COUNTRY.usa.length >= 10);
   assert.ok(CITIES_BY_COUNTRY.canada.length >= 10);
@@ -367,18 +386,22 @@ test('computeLocalFireRisk returns valid probability, distance & calm everyday a
   const stressedRisk = computeLocalFireRisk({ countryId: 'usa', lat: 40.5865, lon: -122.3917, label: 'Redding, CA', grids: sampleGrids, horizonYear: 2035, warmingPct: 35 });
   const quietRisk = computeLocalFireRisk({ countryId: 'usa', lat: 40.7128, lon: -74.006, label: 'New York, NY', grids: sampleGrids, horizonYear: 2030, warmingPct: 10 });
 
-  assert.ok(baseRisk.riskPct >= 40 && baseRisk.riskPct <= 95);
+  assert.ok(baseRisk.riskPct >= 20 && baseRisk.riskPct <= 55, `expected realistic capped threat 20-55%, got ${baseRisk.riskPct}`);
+  assert.ok(baseRisk.smokeRiskPct >= baseRisk.riskPct && baseRisk.smokeRiskPct <= 86);
   assert.ok(stressedRisk.riskPct >= baseRisk.riskPct);
-  assert.ok(quietRisk.riskPct < baseRisk.riskPct);
+  assert.ok(quietRisk.riskPct < baseRisk.riskPct && quietRisk.riskPct <= 10);
   assert.ok(baseRisk.advice.length === 3);
+  assert.ok(baseRisk.advice.some((t) => t.includes('Redding, CA') && t.includes('Shasta-Trinity')));
+  assert.ok(quietRisk.advice.some((t) => t.includes('New York, NY')));
   for (const tip of [...baseRisk.advice, ...quietRisk.advice]) {
     assert.equal(/evacuate|flee|pack your bags|abandon/i.test(tip), false, 'advice must stay calm and everyday, never alarmist');
   }
 });
 
-test('interactive Q&A fallback and UI editorial modules have zero Fig. X labels and zero water/fishing copy', async () => {
+test('interactive Q&A fallback, Variant-R branding, and UI editorial copy checks', async () => {
   const { buildDeterministicAnswer } = await import('../forecast.js');
   const res = buildDeterministicAnswer('Test a +35% extreme stress scenario to 2035 on the map', {
+    scopePath: 'russia',
     countryName: 'Russia',
     selectedYear: 2012,
     horizonYear: 2030,
@@ -392,9 +415,29 @@ test('interactive Q&A fallback and UI editorial modules have zero Fig. X labels 
   assert.ok(res.answer.length > 40);
   assert.deepEqual(res.suggestedScenario, { horizonYear: 2035, warmingPct: 35, showPredictedOverlay: true });
 
-  for (const rel of ['index.html', 'js/ui/tour.js', 'js/ui/slider.js', 'js/ui/header.js', 'js/ui/local-risk.js', 'js/map/legend.js', 'js/charts/fig1-trend.js', 'js/charts/fig2-before-after.js', 'js/charts/fig3-chain.js', 'js/charts/fig4-outlook.js', 'js/forecast.js']) {
+  const cmpRes = buildDeterministicAnswer('Compare Canada, USA, and Russia peak fire years', {
+    scopePath: 'usa',
+    countryName: 'United States',
+    selectedYear: 2023,
+    threeNationComparison: [
+      { countryId: 'usa', countryName: 'United States', selectedYearCo2Mt: 44.1, peakYear: { year: 2021, co2Mt: 170.3 } },
+      { countryId: 'canada', countryName: 'Canada', selectedYearCo2Mt: 1900.2, peakYear: { year: 2023, co2Mt: 1900.2 } },
+      { countryId: 'russia', countryName: 'Russia', selectedYearCo2Mt: 420.5, peakYear: { year: 2021, co2Mt: 969.2 } },
+    ],
+  });
+  assert.ok(cmpRes.answer.includes('Canada') && cmpRes.answer.includes('Russia'));
+
+  const filesToAudit = [
+    'index.html', 'css/tokens.css', 'css/layout.css', 'metadata.json', 'server.ts',
+    'js/ui/tour.js', 'js/ui/slider.js', 'js/ui/header.js', 'js/ui/local-risk.js',
+    'js/ui/forests-panel.js', 'js/ui/infobox.js', 'js/map/legend.js', 'js/map/fires.js',
+    'js/charts/fig1-trend.js', 'js/charts/fig2-before-after.js', 'js/charts/fig3-chain.js',
+    'js/charts/fig4-outlook.js', 'js/forecast.js',
+  ];
+  for (const rel of filesToAudit) {
     const src = fs.readFileSync(rel, 'utf8');
     assert.equal(/\b(salmon|fishing|catch_tonnes|fish_value|kd490|chlor_a|watershed)\b/i.test(src), false, `${rel} must contain zero water/fishing terms`);
+    assert.equal(/\b(ember|amber)\b/i.test(src), false, `${rel} must contain zero ember/amber branding references`);
     const bodyOnly = src.split('\n').filter((line) => !line.trimStart().startsWith('//')).join('\n');
     assert.equal(/\bFig\.\s*[0-9]|\bFigure\s*[0-9]/i.test(bodyOnly), false, `${rel} must not contain Fig. X labels`);
   }

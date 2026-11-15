@@ -175,18 +175,18 @@ export async function mount(el, ctx) {
     fireBar.className = 'leg-bar leg-bar--fire';
     fireBarWrap.append(makeFireDotsSvg(), fireBar);
     fireCard.appendChild(fireBarWrap);
-    fireCard.insertAdjacentHTML('beforeend', '<div class="leg-ticks"><span>&lt;0.05 low</span><span>0.6+ active</span><span>6+ extreme</span></div><p class="leg-desc">Translucent 0.2° clusters sort intense red cores on top.</p>');
+    fireCard.insertAdjacentHTML('beforeend', '<div class="leg-ticks"><span>&lt;0.05 low</span><span>0.6+ active</span><span>6+ extreme</span></div><p class="leg-desc">Shows how tightly fires cluster on 0.2° grid cells, with hotter cores on top.</p>');
 
     const smokeCard = document.createElement('div');
     smokeCard.className = 'leg-card';
-    smokeCard.innerHTML = '<div class="leg-card-head"><span class="leg-card-title">2. Smoke &amp; Carbon Plume</span><span class="leg-card-tag">GFAS PM₂.₅</span></div><div class="leg-bar leg-bar--smoke"></div><div class="leg-ticks"><span>Light</span><span>Regional haze</span><span>Dense plume</span></div><p class="leg-desc">Spatially gridded particulate smoke and carbon monoxide drift.</p>';
+    smokeCard.innerHTML = '<div class="leg-card-head"><span class="leg-card-title">2. Smoke &amp; Carbon Plume</span><span class="leg-card-tag">GFAS PM₂.₅</span></div><div class="leg-bar leg-bar--smoke"></div><div class="leg-ticks"><span>Light</span><span>Regional haze</span><span>Dense plume</span></div><p class="leg-desc">Shows where fine smoke particles and carbon plumes spread across the region.</p>';
 
     layers.append(fireCard, smokeCard);
 
     if (state.showPredictedOverlay) {
       const predCard = document.createElement('div');
       predCard.className = 'leg-card';
-      predCard.innerHTML = `<div class="leg-card-head"><span class="leg-card-title">3. Predicted Risk (${state.horizonYear})</span><span class="leg-card-tag">+${state.warmingPct}% stress</span></div><div class="leg-bar leg-bar--pred"></div><div class="leg-ticks"><span>Emerging</span><span>High</span><span>Critical</span></div><p class="leg-desc">Violet-amber rings mark projected hotspot persistence from the 2027–2035 outlook.</p>`;
+      predCard.innerHTML = `<div class="leg-card-head"><span class="leg-card-title">3. Predicted Risk (${state.horizonYear})</span><span class="leg-card-tag">+${state.warmingPct}% stress</span></div><div class="leg-bar leg-bar--pred"></div><div class="leg-ticks"><span>Emerging</span><span>High</span><span>Critical</span></div><p class="leg-desc">Purple-gold rings show where fires are likely to intensify in the 2027–2035 forecast.</p>`;
       layers.appendChild(predCard);
     }
   }
@@ -320,7 +320,7 @@ export async function mount(el, ctx) {
 
     badge.className = `leg-badge${statusClass ? ` ${statusClass}` : ''}`;
     badge.innerHTML = (loading && !yrRow)
-      ? '<span class="ember-spinner ember-spinner--sm" aria-hidden="true"></span><span>Loading</span>'
+      ? '<span class="vr-spinner vr-spinner--sm" aria-hidden="true"></span><span>Loading</span>'
       : escHtml(statusLabel);
 
     const sensorTag = fs?.sensor || yrRow?.sensor || null;
@@ -354,7 +354,7 @@ export async function mount(el, ctx) {
     const topForestName = fs?.topForest?.name || yrRow?.topForests?.[0]?.name || emYr?.topForests?.[0]?.name;
     if (loading) {
       brief.className = 'leg-brief is-muted';
-      brief.innerHTML = `<span class="ember-spinner ember-spinner--sm" aria-hidden="true"></span><span>Loading ${yr} detections for ${escHtml(meta ? meta.shortName : state.countryId)}…</span>`;
+      brief.innerHTML = `<span class="vr-spinner vr-spinner--sm" aria-hidden="true"></span><span>Loading ${yr} fire points for ${escHtml(meta ? meta.shortName : state.countryId)}…</span>`;
     } else if (!hasSpatialFires && !comparableTotal && !emYr) {
       brief.className = 'leg-brief is-muted';
       brief.innerHTML = `No fire CSV rows loaded for <strong>${escHtml(meta ? meta.shortName : state.countryId)}</strong>.`;

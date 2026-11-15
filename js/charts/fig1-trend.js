@@ -1,8 +1,8 @@
 // js/charts/fig1-trend.js
-// Purpose: Fig. 1 (#fig1) — annual line + monthly trace + thick Sen trend line for the focused variable.
-//          Optimized to move only the year-marker SVG line during slider scrubbing/playback.
+// Purpose: #fig1 — annual line + monthly trace + Sen trend slope for the focused variable,
+//          plus real data-derived trend diagnostics (Mann-Kendall, decade shift, peak multiple, seasonal timing).
 import * as Plot from 'https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6/+esm';
-import { erfcApprox } from '../theme.js';
+import { erfcApprox, quantileSorted } from '../theme.js';
 
 const STYLE = `
 .f1-root { padding: 10px 12px 8px; }
@@ -24,7 +24,7 @@ const STYLE = `
 .f1-seg button[data-group="fire"][aria-pressed="true"] { background: var(--c-fire); }
 .f1-seg button[data-group="air"][aria-pressed="true"] { background: var(--c-smoke); }
 .f1-plot { margin-top: 6px; min-height: 230px; }
-.f1-plot svg { display: block; max-width: 100%; animation: emberFadeIn 190ms var(--ease-out); }
+.f1-plot svg { display: block; max-width: 100%; animation: vrFadeIn 190ms var(--ease-out); }
 .f1-year-rule { pointer-events: none; transition: x1 160ms var(--ease-out), x2 160ms var(--ease-out); }
 .f1-stats { font-family: var(--f-mono); font-size: 12px; color: var(--c-ink); margin: 6px 0 0; line-height: 1.55; }
 .f1-stats strong { font-weight: 600; color: var(--c-ink); }
@@ -51,6 +51,7 @@ const MARGIN_L = 56;
 const MARGIN_R = 20;
 const MARGIN_T = 30;
 const MARGIN_B = 28;
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 function signed(v, digits) {
   if (v === null || v === undefined || !Number.isFinite(v)) return '—';
@@ -59,7 +60,10 @@ function signed(v, digits) {
 }
 
 export function computeTrendStats(annualPoints, y0) {
-  const pts = (annualPoints || []).filter((d) => d && d.value !== null && Number.isFinite(d.value));
+  const pts = (annualPoints || [])
+    .filter((d) => d && d.value !== null && Number.isFinite(d.value))
+    .slice()
+    .sort((a, b) => a.year - b.year);
   const n = pts.length;
   if (n < 4) return null;
   let S = 0;
@@ -89,16 +93,109 @@ export function computeTrendStats(annualPoints, y0) {
   const z = varS > 0 ? (S > 0 ? (S - 1) : S < 0 ? (S + 1) : 0) / Math.sqrt(varS) : 0;
   const p = erfcApprox(Math.abs(z) / Math.SQRT2);
   const tau = S / ((n * (n - 1)) / 2);
-  const direction = p < 0.05 ? (S > 0 ? 'increasing' : 'decreasing') : 'no clear trend';
-  return { basis: 'annual', tau, p, sen_slope: senSlope, sen_intercept: senIntercept, direction, n };
+
+  // Compute recent vs earlier window shift and peak multiple from real series
+  const fullComplete = pts.filter((d) => d.year < 2026);
+  const windowPts = fullComplete.length >= 6 ? fullComplete : pts;
+  const splitIdx = Math.max(2, Math.floor(windowPts.length / 2));
+  const earlyAvg = windowPts.slice(0, splitIdx).reduce((s, d) => s + d.value, 0) / splitIdx;
+  const recentAvg = windowPts.slice(splitIdx).reduce((s, d) => s + d.value, 0) / Math.max(1, windowPts.length - splitIdx);
+  const splitYear = windowPts[splitIdx]?.year || 2015;
+  const shiftPct = earlyAvg > 0 ? Math.round(((recentAvg - earlyAvg) / earlyAvg) * 100) : 0;
+
+  const sortedVals = pts.map((d) => d.value).sort((a, b) => a - b);
+  const med = quantileSorted(sortedVals, 0.5) || 1;
+  let peakPt = pts[0];
+  for (const d of pts) if (d.value > peakPt.value) peakPt = d;
+  const peakMult = Number((peakPt.value / med).toFixed(1));
+
+  let direction;
+  if (p < 0.05) {
+    direction = S > 0 ? 'clear upward trend' : 'clear downward trend';
+  } else if (shiftPct >= 15) {
+    direction = `+${shiftPct}% higher since ${splitYear}`;
+  } else if (shiftPct <= -15) {
+    direction = `${shiftPct}% lower since ${splitYear}`;
+  } else if (peakMult >= 2.2) {
+    direction = `major spike years (peaked ${peakMult}× median in ${peakPt.year})`;
+  } else if (S > 0) {
+    direction = 'gradual upward drift';
+  } else if (S < 0) {
+    direction = 'slight easing drift';
+  } else {
+    direction = `steady cycle (peaked in ${peakPt.year})`;
+  }
+
+  return {
+    basis: 'annual',
+    tau,
+    p,
+    sen_slope: senSlope,
+    sen_intercept: senIntercept,
+    direction,
+    shiftPct,
+    splitYear,
+    peakYear: peakPt.year,
+    peakMult,
+    n,
+  };
+}
+
+function computeSeasonalInsight(monthlyPoints) {
+  const pts = (monthlyPoints || []).filter((d) => d && d.value !== null && Number.isFinite(d.value));
+  if (pts.length < 6) return null;
+
+  const monthTotals = new Array(12).fill(0);
+  const monthCounts = new Array(12).fill(0);
+  let totalSum = 0;
+  let summerSum = 0;
+
+  for (const p of pts) {
+    const m = p.date.getUTCMonth();
+    monthTotals[m] += p.value;
+    monthCounts[m] += 1;
+    totalSum += p.value;
+    if (m >= 4 && m <= 8) summerSum += p.value;
+  }
+
+  let peakMonthIdx = 0;
+  let peakMonthAvg = -1;
+  for (let m = 0; m < 12; m += 1) {
+    if (!monthCounts[m]) continue;
+    const avg = monthTotals[m] / monthCounts[m];
+    if (avg > peakMonthAvg) {
+      peakMonthAvg = avg;
+      peakMonthIdx = m;
+    }
+  }
+  const summerSharePct = totalSum > 0 ? Math.round((summerSum / totalSum) * 100) : 0;
+
+  // Also compute May–Sep annual peak-season trend
+  const summerByYr = new Map();
+  for (const p of pts) {
+    const m = p.date.getUTCMonth();
+    if (m < 4 || m > 8) continue;
+    const yr = p.date.getUTCFullYear();
+    summerByYr.set(yr, (summerByYr.get(yr) || 0) + p.value);
+  }
+  const summerYears = Array.from(summerByYr.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([year, value]) => ({ year, value }));
+  const summerTrend = summerYears.length >= 4 ? computeTrendStats(summerYears, summerYears[0].year) : null;
+
+  return {
+    peakMonth: MONTH_NAMES[peakMonthIdx],
+    summerSharePct,
+    nMonths: pts.length,
+    summerTrend,
+  };
 }
 
 function trendText(t, unit, theme) {
   if (!t) return null;
-  const label = t.basis === 'annual' ? 'Mann-Kendall (annual)' : 'Seasonal Mann-Kendall (monthly)';
-  const digits = Math.abs(t.sen_slope || 0) >= 100 ? 0 : 4;
+  const digits = Math.abs(t.sen_slope || 0) >= 100 ? 0 : 2;
   const tau = t.tau === null ? 'τ = —' : `τ = ${t.tau.toFixed(2).replace('-', '−')}`;
-  return `<strong>${label}:</strong> ${tau} · ${theme.fmtP(t.p)} · <strong>Sen:</strong> ${signed(t.sen_slope, digits)} ${unit}/yr · <strong>${t.direction}</strong>${t.n ? ` (n = ${t.n})` : ''}`;
+  return `<strong>Yearly pattern:</strong> <strong>${t.direction}</strong> · ${signed(t.sen_slope, digits)} ${unit}/yr (${tau}, ${theme.fmtP(t.p)}, ${t.n} yrs)`;
 }
 
 export async function mount(el, ctx) {
@@ -112,7 +209,7 @@ export async function mount(el, ctx) {
   head.className = 'f1-head';
   const title = document.createElement('h3');
   title.className = 'f1-title';
-  title.textContent = 'Historical Fire & Smoke Trend';
+  title.textContent = 'Long-Term Fire & Smoke Trend';
   const seg = document.createElement('div');
   seg.className = 'f1-seg';
   seg.setAttribute('role', 'group');
@@ -167,7 +264,7 @@ export async function mount(el, ctx) {
 
   function draw(state) {
     if (!current) return;
-    const { meta, series, stats: st } = current;
+    const { meta, series } = current;
     let focus = VARS[state.focus] ? state.focus : 'fire_frp';
     if (focus === 'fire_frp' && series) {
       const hasFrp = data.annualSeries(series, 'fire_frp').some((d) => d.value !== null);
@@ -180,8 +277,8 @@ export async function mount(el, ctx) {
     subSeg.dataset.group = v.group;
     if (v.group === 'fire' && series) {
       const fireVars = [
-        { id: 'fire_frp', label: 'Fire power (MW)' },
-        { id: 'fire_count', label: 'MODIS detections' },
+        { id: 'fire_frp', label: 'Fire heat (MW)' },
+        { id: 'fire_count', label: 'MODIS fires' },
         { id: 'viirs_count', label: 'VIIRS (2012+)' },
       ].filter((opt) => data.annualSeries(series, opt.id).some((d) => d.value !== null));
       subSeg.hidden = fireVars.length <= 1;
@@ -195,7 +292,7 @@ export async function mount(el, ctx) {
       }
     } else if (v.group === 'air' && series) {
       const airVars = [
-        { id: 'co2_em', label: 'CO₂ emissions' },
+        { id: 'co2_em', label: 'CO₂ released' },
         { id: 'pm25_em', label: 'PM₂.₅ smoke' },
       ].filter((opt) => data.annualSeries(series, opt.id).some((d) => d.value !== null));
       subSeg.hidden = airVars.length <= 1;
@@ -213,7 +310,7 @@ export async function mount(el, ctx) {
 
     const unit = theme.unitFor(focus);
     const [y0, y1] = meta.years || [2002, 2026];
-    cap.innerHTML = `${v.label}, ${meta.name}, ${y0}–${y1}. Thick line: Sen trend slope.`;
+    cap.innerHTML = `${v.label} in ${meta.name} (${y0}–${y1}). Thick colored line shows the long-term trend.`;
     plotBox.innerHTML = '';
     stats.innerHTML = '';
     yearRuleState = null;
@@ -225,11 +322,10 @@ export async function mount(el, ctx) {
       return;
     }
 
-    const trends = (st && st.trends ? st.trends : []).filter((t) => t.variable === focus);
-    const ta = trends.find((t) => t.basis === 'annual') || computeTrendStats(annual, y0);
-    const tm = trends.find((t) => t.basis === 'monthly');
+    const ta = computeTrendStats(annual, y0);
+    const seasonal = computeSeasonalInsight(monthly);
     const sen = ta && ta.sen_slope !== null && ta.sen_intercept !== null
-      ? annual.map((d) => ({ date: d.date, value: ta.sen_intercept + ta.sen_slope * (d.year - y0) }))
+      ? annual.map((d) => ({ date: d.date, value: Math.max(0, ta.sen_intercept + ta.sen_slope * (d.year - y0)) }))
       : [];
     const width = Math.max(260, plotBox.clientWidth || el.clientWidth - 40 || 420);
     lastWidth = width;
@@ -284,14 +380,21 @@ export async function mount(el, ctx) {
     moveYearRule(state.year);
 
     plotBox.appendChild(svg);
-    const lines = [trendText(ta, unit, theme), trendText(tm, unit, theme)].filter(Boolean);
-    if (!lines.length) lines.push('No trend test for this selection');
+    const lines = [trendText(ta, unit, theme)].filter(Boolean);
+    if (seasonal) {
+      const summerText = seasonal.summerTrend
+        ? ` · May–Sep trend: <strong>${seasonal.summerTrend.direction}</strong>`
+        : '';
+      lines.push(`<strong>Season timing:</strong> peaks in <strong>${seasonal.peakMonth}</strong> (${seasonal.summerSharePct}% of total occurs May–Sep${summerText})`);
+    } else if (ta) {
+      lines.push(`<strong>Recent vs. earlier:</strong> ${ta.shiftPct >= 0 ? '+' : ''}${ta.shiftPct}% change after ${ta.splitYear} · peak year <strong>${ta.peakYear}</strong> (${ta.peakMult}× median)`);
+    }
     stats.innerHTML = lines.map((l, i) => `<span class="${i ? 'f1-muted' : ''}">${l}</span>`).join('<br>');
   }
 
   async function build(state) {
     const my = ++token;
-    theme.spinner(plotBox, 'Loading historical trend…');
+    theme.spinner(plotBox, 'Loading long-term trend…');
     const scope = await data.getScope(state);
     if (my !== token) return;
     current = scope && scope.meta ? scope : null;

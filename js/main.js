@@ -1,6 +1,8 @@
 // js/main.js
 // Purpose: app entry. Builds ctx = { store, data, theme } and mounts every module into its slot.
 
+import '../css/tokens.css';
+import '../css/layout.css';
 import { store } from './store.js';
 import * as data from './data.js';
 import * as theme from './theme.js';
@@ -12,6 +14,7 @@ import * as infoboxMod from './ui/infobox.js';
 import * as fig1Mod from './charts/fig1-trend.js';
 import * as localRiskMod from './ui/local-risk.js';
 import * as fig2Mod from './charts/fig2-before-after.js';
+import * as forestsPanelMod from './ui/forests-panel.js';
 import * as fig3Mod from './charts/fig3-chain.js';
 import * as fig4Mod from './charts/fig4-outlook.js';
 import { mountTour } from './ui/tour.js';
@@ -27,6 +30,7 @@ const MODULES = [
   { id: 'fig1', mod: fig1Mod },
   { id: 'local-risk', mod: localRiskMod },
   { id: 'fig2', mod: fig2Mod },
+  { id: 'forests-panel', mod: forestsPanelMod },
   { id: 'fig3', mod: fig3Mod },
   { id: 'outlook', mod: fig4Mod },
 ];

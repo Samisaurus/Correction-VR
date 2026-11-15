@@ -123,10 +123,10 @@ export async function mount(el, ctx) {
   const brandText = document.createElement('div');
   brandText.className = 'hdr-brand-text';
   const h1 = document.createElement('h1');
-  h1.textContent = 'Ember Observatory';
+  h1.textContent = 'Variant-R';
   const sub = document.createElement('p');
   sub.className = 'hdr-sub';
-  sub.innerHTML = `<strong>Wildfire &amp; atmospheric chronicles</strong> · Mapping boreal fire &amp; smoke (${y0}–${y1})`;
+  sub.innerHTML = `<strong>Wildfires &amp; smoke</strong> across Canada, the USA, and Russia (${y0}–${y1})`;
   brandText.append(h1, sub);
   brand.append(mark, brandText);
 

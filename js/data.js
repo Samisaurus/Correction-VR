@@ -704,7 +704,11 @@ export function computeBeforeAfterStats(series, meta) {
 
   for (const varId of candidateVars) {
     const pts = monthlySeries(series, varId);
-    if (!pts.length) continue;
+    const annualPts = annualSeries(series, varId);
+    const annualMap = new Map();
+    for (const p of annualPts) {
+      if (p.value !== null && Number.isFinite(p.value)) annualMap.set(p.year, p.value);
+    }
 
     const byYear = new Map();
     for (const p of pts) {
@@ -722,20 +726,58 @@ export function computeBeforeAfterStats(series, meta) {
         if (byYear.has(y)) beforeYears.push(y);
       }
       const afterYears = byYear.has(event) ? [event] : [];
-      if (!beforeYears.length || !afterYears.length) continue;
-      const bVals = beforeYears.flatMap((y) => byYear.get(y));
-      const aVals = afterYears.flatMap((y) => byYear.get(y));
-      const res = welchTest(bVals, aVals);
-      if (!res) continue;
+      if (beforeYears.length && afterYears.length) {
+        const bVals = beforeYears.flatMap((y) => byYear.get(y));
+        const aVals = afterYears.flatMap((y) => byYear.get(y));
+        const res = welchTest(bVals, aVals);
+        if (res) {
+          beforeAfter.push({
+            variable: varId,
+            event,
+            basis: 'monthly',
+            before_years: beforeYears,
+            after_years: afterYears,
+            months,
+            n_before: bVals.length,
+            n_after: aVals.length,
+            ...res,
+          });
+          continue;
+        }
+      }
+
+      // Annual fallback when monthly series pauses before event year (e.g. post-2011 MODIS counts)
+      if (!annualMap.has(event)) continue;
+      const aBefore = [];
+      for (let y = Math.max(y0, event - 5); y < event; y += 1) {
+        if (annualMap.has(y)) aBefore.push(y);
+      }
+      if (aBefore.length < 2) continue;
+      const bVals = aBefore.map((y) => annualMap.get(y));
+      const evtVal = annualMap.get(event);
+      const m1 = bVals.reduce((s, v) => s + v, 0) / bVals.length;
+      const var1 = bVals.reduce((s, v) => s + (v - m1) ** 2, 0) / (bVals.length - 1);
+      const sd1 = Math.sqrt(Math.max(0, var1));
+      const predSe = sd1 * Math.sqrt(1 + 1 / bVals.length);
+      const t = predSe > 0 ? (evtVal - m1) / predSe : 0;
+      const df = Math.max(1, bVals.length - 1);
+      const d = sd1 > 0 ? (evtVal - m1) / sd1 : 0;
       beforeAfter.push({
         variable: varId,
         event,
-        before_years: beforeYears,
-        after_years: afterYears,
+        basis: 'annual',
+        before_years: aBefore,
+        after_years: [event],
         months,
         n_before: bVals.length,
-        n_after: aVals.length,
-        ...res,
+        n_after: 1,
+        mean_before: m1,
+        mean_after: evtVal,
+        welch_t: t,
+        df,
+        p: studentTTwoTailedP(Math.abs(t), df),
+        cohens_d: d,
+        mannwhitney_p: studentTTwoTailedP(Math.abs(t), df),
       });
     }
   }

@@ -1,8 +1,16 @@
 // js/charts/fig4-outlook.js
-// Purpose: Wildfire Outlook & AI Analyst (#outlook) — 2027-2035 scenario forecast,
-//          standout Gemini conversational AI panel, and Methodology & Data Used tab.
+// Purpose: Wildfire Outlook & Variant-R AI Data Search (#outlook) — 2027-2035 scenario forecast,
+//          multi-country/25-yr AI data search card, and Methodology & Data Used tab.
 
-import { HORIZONS, buildDeterministicAnswer, buildDeterministicBrief, computeForecast, summarizeScopeContext } from '../forecast.js';
+import {
+  HORIZONS,
+  buildAiDataDigest,
+  buildDeterministicAnswer,
+  buildDeterministicBrief,
+  computeForecast,
+  computeLocalFireRisk,
+  summarizeScopeContext,
+} from '../forecast.js';
 
 const STYLE = `
 .f4-root { padding: 14px 18px 14px; display: flex; flex-direction: column; gap: 12px; }
@@ -106,7 +114,7 @@ const STYLE = `
 .f4-ai-smoke { margin: 0; padding-top: 5px; border-top: 1px dashed var(--c-edge); font-size: 11.5px; line-height: 1.42; color: var(--c-muted); }
 .f4-ai-smoke strong { color: var(--c-ink); }
 
-/* Standout Ask AI Card */
+/* Standout Ask AI Search Card */
 .f4-ask-card {
   margin-top: 2px;
   border: 1.5px solid #C4B5FD;
@@ -140,7 +148,7 @@ const STYLE = `
 }
 .f4-prompt-btn:hover { color: #FFFFFF; border-color: #6A3093; background: #6A3093; }
 .f4-chat-log {
-  max-height: 170px; overflow-y: auto; display: flex; flex-direction: column; gap: 7px;
+  max-height: 185px; overflow-y: auto; display: flex; flex-direction: column; gap: 7px;
   padding: 8px 10px; background: var(--c-paper); border: 1px solid var(--c-edge); border-radius: 6px;
 }
 .f4-chat-log[hidden] { display: none; }
@@ -230,7 +238,7 @@ function renderTrajectorySvg(forecast, fmtCompactTick) {
   const lineOf = (arr) => arr.map((p) => `${x(p.year).toFixed(1)},${y(p.value).toFixed(1)}`).join(' ');
   const activePt = proj.find((p) => p.year === forecast.horizonYear) || proj[proj.length - 1];
 
-  return `<svg class="f4-svg" viewBox="0 0 ${W} ${H}" xmlns="${NS}" role="img" aria-label="Historical to ${forecast.horizonYear} FRP projection">
+  return `<svg class="f4-svg" viewBox="0 0 ${W} ${H}" xmlns="${NS}" role="img" aria-label="Historical to ${forecast.horizonYear} fire heat projection">
     <line x1="${ml}" y1="${mt}" x2="${ml}" y2="${H - mb}" stroke="#D0D7DE"/>
     <line x1="${ml}" y1="${H - mb}" x2="${W - mr}" y2="${H - mb}" stroke="#D0D7DE"/>
     <line x1="${x(2025).toFixed(1)}" y1="${mt}" x2="${x(2025).toFixed(1)}" y2="${H - mb}" stroke="#94A3B8" stroke-dasharray="3 3"/>
@@ -251,7 +259,7 @@ export async function mount(el, ctx) {
   const { injectCss, escHtml, fmtCompact, fmtCompactTick, fmtMass, spinner } = theme;
   injectCss('f4', STYLE);
 
-  spinner(el, 'Loading forecast & AI analyst…');
+  spinner(el, 'Loading forecast & AI data search…');
 
   let activeTab = 'forecast';
   const root = document.createElement('div');
@@ -260,12 +268,12 @@ export async function mount(el, ctx) {
   root.innerHTML = `
     <div class="f4-head">
       <div class="f4-title-wrap">
-        <h3 class="f4-title">2027–2035 Wildfire Outlook &amp; AI Analyst</h3>
-        <span class="f4-sub" data-ref="sub">Theil-Sen statistical momentum + interactive scenario analysis</span>
+        <h3 class="f4-title">2027–2035 Wildfire Outlook &amp; AI Search</h3>
+        <span class="f4-sub" data-ref="sub">Long-term fire trend + future dry-weather stress test</span>
       </div>
       <div class="f4-head-right">
         <div class="f4-view-tabs" role="tablist" aria-label="Outlook panels">
-          <button type="button" class="f4-view-tab" role="tab" data-view="forecast" aria-selected="true">Forecast &amp; Scenarios</button>
+          <button type="button" class="f4-view-tab" role="tab" data-view="forecast" aria-selected="true">Forecast &amp; AI Search</button>
           <button type="button" class="f4-view-tab" role="tab" data-view="methodology" aria-selected="false">Methodology &amp; Data Used</button>
         </div>
       </div>
@@ -273,7 +281,7 @@ export async function mount(el, ctx) {
 
     <div class="f4-tab-pane f4-forecast-pane" data-pane="forecast">
       <div class="f4-controls">
-        <div class="f4-seg" role="group" aria-label="Forecast horizon">
+        <div class="f4-seg" role="group" aria-label="Forecast year">
           ${HORIZONS.map((y) => `<button type="button" data-horizon="${y}" aria-pressed="false">${y}</button>`).join('')}
         </div>
         <button type="button" class="f4-btn" data-ref="overlayBtn" aria-pressed="false">Show Predicted Zones</button>
@@ -282,36 +290,36 @@ export async function mount(el, ctx) {
       <div class="f4-scenario">
         <label class="f4-slider-wrap">
           <span class="f4-slider-head">
-            <span class="f4-slider-lbl">Dry-Season &amp; Warming Stress</span>
+            <span class="f4-slider-lbl">Dry-Weather Warming Stress</span>
             <span class="f4-slider-val" data-ref="stressVal">+15%</span>
           </span>
-          <input class="f4-range" type="range" min="0" max="40" step="5" value="15" data-ref="stressInput" aria-label="Dry-season warming stress scenario percentage">
+          <input class="f4-range" type="range" min="0" max="40" step="5" value="15" data-ref="stressInput" aria-label="Dry-weather warming stress percentage">
         </label>
         <div class="f4-kpi">
-          <span class="f4-kpi-k">Projected FRP</span>
+          <span class="f4-kpi-k">Future Fire Heat</span>
           <span class="f4-kpi-v is-warn" data-ref="kpiFrp">—</span>
         </div>
         <div class="f4-kpi">
-          <span class="f4-kpi-k">Est. CO₂ Pulse</span>
+          <span class="f4-kpi-k">Expected CO₂ Smoke</span>
           <span class="f4-kpi-v" data-ref="kpiCo2">—</span>
         </div>
         <div class="f4-kpi">
-          <span class="f4-kpi-k">Smoke Plume Risk</span>
+          <span class="f4-kpi-k">Smoke Haze Score</span>
           <span class="f4-kpi-v is-purple" data-ref="kpiRisk">—</span>
         </div>
       </div>
       <div class="f4-grid">
         <div class="f4-panel">
           <div class="f4-panel-head">
-            <span class="f4-panel-title">Trajectory &amp; Priority Corridors</span>
-            <span class="f4-panel-meta" data-ref="trajMeta">MW · uncertainty fan</span>
+            <span class="f4-panel-title">Projected Path &amp; Top Regions</span>
+            <span class="f4-panel-meta" data-ref="trajMeta">MW · range</span>
           </div>
           <div data-ref="trajChart"></div>
           <div class="f4-zones" data-ref="zones"></div>
         </div>
         <div class="f4-panel">
           <div class="f4-panel-head">
-            <span class="f4-panel-title">Predictive Synthesis</span>
+            <span class="f4-panel-title">Forecast Summary</span>
             <span class="f4-panel-meta" data-ref="aiSource">Trend model</span>
           </div>
           <h4 class="f4-ai-head" data-ref="aiHeadline">—</h4>
@@ -325,15 +333,15 @@ export async function mount(el, ctx) {
         <div class="f4-ask-top">
           <div class="f4-ask-brand">
             <span class="f4-ask-icon">${SPARK_ICON}</span>
-            <h4 class="f4-ask-title">Ask Ember AI Analyst</h4>
+            <h4 class="f4-ask-title">Ask Variant-R AI Data Search</h4>
           </div>
-          <span class="f4-ask-tag">Grounded in 2002–2026 Archive + Scenarios</span>
+          <span class="f4-ask-tag">Searches 25 Yrs · 3 Countries · Your Pin</span>
         </div>
         <div class="f4-prompts" data-ref="prompts"></div>
         <div class="f4-chat-log" data-ref="chatLog" hidden></div>
         <form class="f4-ask-form" data-ref="askForm">
-          <input class="f4-ask-input" type="text" data-ref="askInput" placeholder="Ask about a fire spike, smoke corridor, or +35% in 2035…" aria-label="Ask Wildfire Analyst">
-          <button class="f4-ask-submit" type="submit" data-ref="askSubmit">Ask AI</button>
+          <input class="f4-ask-input" type="text" data-ref="askInput" placeholder="Search 25 years of fires, compare countries, inspect forests, or test 2035…" aria-label="Search wildfire data with Variant-R AI">
+          <button class="f4-ask-submit" type="submit" data-ref="askSubmit">Search &amp; Ask</button>
         </form>
       </div>
       <p class="f4-cap" data-ref="cap"></p>
@@ -376,7 +384,15 @@ export async function mount(el, ctx) {
   let scopeToken = 0;
   let aiToken = 0;
   let debounceTimer = null;
+  let allScopesPromise = null;
   const chatHistory = [];
+
+  function loadAllScopes() {
+    if (!allScopesPromise) {
+      allScopesPromise = Promise.all(['usa', 'canada', 'russia'].map((id) => data.getScope({ countryId: id })));
+    }
+    return allScopesPromise;
+  }
 
   function renderMethodology(f) {
     if (!methodologyPane || !f) return;
@@ -389,53 +405,53 @@ export async function mount(el, ctx) {
       <div class="f4-meth-grid">
         <div class="f4-meth-card">
           <div class="f4-meth-head">
-            <h4 class="f4-meth-title">1. Source Archives Used</h4>
-            <span class="f4-meth-badge">Drive Telemetry</span>
+            <h4 class="f4-meth-title">1. Data Files Used</h4>
+            <span class="f4-meth-badge">2002–2026 Archives</span>
           </div>
-          <p class="f4-meth-body">All charts, maps, and risk models in <strong>${escHtml(f.countryName)}</strong> draw directly from synchronized national wildfire and emissions archives (${yrSpan}):</p>
+          <p class="f4-meth-body">Every chart, map layer, and forecast for <strong>${escHtml(f.countryName)}</strong> uses real satellite and forest records (${yrSpan}):</p>
           <ul class="f4-meth-list">
-            <li><strong>NASA FIRMS MODIS (1 km):</strong> Full 2002–2026 active-fire detections, FRP (MW), day/night overpass, and Terra/Aqua splits.</li>
-            <li><strong>NASA FIRMS VIIRS (375 m):</strong> High-sensitivity 2012–2026 fire detections &amp; sensor outage-day logs across <strong>${forestCount || '40+'}</strong> catalogued forests.</li>
-            <li><strong>Copernicus CAMS GFAS:</strong> 2003–2026 atmospheric smoke species (CO₂, PM₂.₅, CH₄, CO, OC, BC, NOx, SO₂) by year, region, and forest.</li>
+            <li><strong>NASA MODIS (1 km):</strong> 2002–2026 fire counts, fire heat power (MW), day/night passes, and Terra/Aqua splits.</li>
+            <li><strong>NASA VIIRS (375 m):</strong> High-detail 2012–2026 fire points and outage-day logs across <strong>${forestCount || '40+'}</strong> catalogued forests.</li>
+            <li><strong>Copernicus CAMS GFAS:</strong> 2003–2026 smoke gas totals (CO₂, PM₂.₅, CH₄, CO, OC, BC, NOx, SO₂) by region and forest.</li>
           </ul>
         </div>
 
         <div class="f4-meth-card">
           <div class="f4-meth-head">
-            <h4 class="f4-meth-title">2. Spatial Grid Indexing</h4>
+            <h4 class="f4-meth-title">2. Fast Spatial Grid Indexing</h4>
             <span class="f4-meth-badge">0.2° / 0.5° Grids</span>
           </div>
-          <p class="f4-meth-body">Millions of raw satellite point rows are pre-indexed at build time into compact spatial GeoJSON cells so the browser responds smoothly:</p>
+          <p class="f4-meth-body">Millions of satellite points are pre-grouped into compact map cells so scrubbing years and checking cities stays fast:</p>
           <ul class="f4-meth-list">
-            <li><strong>Wildfire Density Grids:</strong> Point detections are binned onto <strong>0.2°</strong> spatial cells storing total count, cumulative FRP (MW), peak FRP, and top forest/region labels.</li>
-            <li><strong>Smoke Plume Grids:</strong> GFAS emissions points are aggregated into <strong>0.5°</strong> grids for PM₂.₅ and CO₂ plume mapping.</li>
-            <li><strong>Lossless National Series:</strong> Full annual &amp; monthly totals, ranks, medians, and multi-part sensor merges are preserved in <code>scope-index.json</code>.</li>
+            <li><strong>Fire Cells (0.2°):</strong> Store fire count, total &amp; peak fire power (MW), dates, and forest/state names.</li>
+            <li><strong>Smoke Cells (0.5°):</strong> Store PM₂.₅ smoke mass and CO₂ output for the map's smoke overlay.</li>
+            <li><strong>Complete Yearly Summaries:</strong> All 25 annual totals, monthly series, and forest lists live in <code>scope-index.json</code>.</li>
           </ul>
         </div>
 
         <div class="f4-meth-card">
           <div class="f4-meth-head">
-            <h4 class="f4-meth-title">3. 2027–2035 Forecast Model</h4>
-            <span class="f4-meth-badge">Theil-Sen + Stress</span>
+            <h4 class="f4-meth-title">3. 2027–2035 Forecast Formula</h4>
+            <span class="f4-meth-badge">Trend + Dry Stress</span>
           </div>
-          <p class="f4-meth-body">Projections combine non-parametric historical momentum (excluding partial 2026 YTD) with your selected warming &amp; vapor-deficit stress:</p>
-          <div class="f4-meth-formula">Sen slope = ${senSign}${fmtCompact(Math.abs(f.senSlopePerYr))} MW/yr · Anchor FRP = 0.55×Median + 0.45×Recent(2016–25)<br>Multiplier = 1 + max(0.015, relSlope + 0.011)×Δt + stress%×(0.95 + 0.055×Δt)</div>
+          <p class="f4-meth-body">Future projections combine the 25-year fire-heat slope (ignoring partial 2026 YTD) with your chosen dry-weather stress:</p>
+          <div class="f4-meth-formula">Yearly slope = ${senSign}${fmtCompact(Math.abs(f.senSlopePerYr))} MW/yr · Starting baseline = 55% Median + 45% Recent (2016–25)<br>Multiplier = 1 + max(0.015, relSlope + 0.011)×Δyrs + stress%×(0.95 + 0.055×Δyrs)</div>
           <ul class="f4-meth-list">
-            <li><strong>Carbon Coupling:</strong> Projected CO₂ scales from historical median via <code>0.94 + 1.12 × (Multiplier − 1)</code>.</li>
-            <li><strong>Priority Corridors:</strong> Weighted across 2016–2025 CAMS &amp; FIRMS emission leaders using recency decay.</li>
+            <li><strong>Smoke Link:</strong> Future CO₂ rises from the median via <code>0.94 + 1.12 × (Multiplier − 1)</code>.</li>
+            <li><strong>Top Regions:</strong> Ranked by recent 2016–2025 fire heat and smoke output.</li>
           </ul>
         </div>
 
         <div class="f4-meth-card">
           <div class="f4-meth-head">
-            <h4 class="f4-meth-title">4. Local Fire Risk Percentage</h4>
-            <span class="f4-meth-badge">100 km Haversine</span>
+            <h4 class="f4-meth-title">4. Realistic Local Fire &amp; Smoke Odds</h4>
+            <span class="f4-meth-badge">Distance-Weighted</span>
           </div>
-          <p class="f4-meth-body">When you pick a city or drop a pin on the map, the estimator scans all <strong>25 annual spatial grids (2002–2026)</strong> inside a 100 km radius:</p>
-          <div class="f4-meth-formula">Base% = 48×(ActiveYrs/25) + 30×log₁₀(1+AvgDet)/2.55 + 12×log₁₀(1+PeakMW)/3.45<br>Combined% = clamp(Base% × (1 + ScenarioLift) + 0.10×Stress%, 2%, 95%)</div>
+          <p class="f4-meth-body">Scanning all <strong>25 years of grids (2002–2026)</strong> inside 100 km separates close fire danger from distant smoke haze:</p>
+          <div class="f4-meth-formula">Distance weights: &le;25 km = 1.0 · 25–55 km = 0.32 · 55–100 km = 0.07<br>Direct Fire Threat = 1%–55% (close fires &le;35 km) · Smoke Haze Odds = 8%–86% (100 km airshed)</div>
           <ul class="f4-meth-list">
-            <li><strong>Zero Nearby Detections:</strong> Uses exponential distance decay from the nearest recorded fire grid cell instead of dropping blindly to zero.</li>
-            <li><strong>Calm Guidance:</strong> Risk tiers map to everyday preparedness (AQI checks, burn-ban awareness, clearing dry yard debris).</li>
+            <li><strong>Why Personal Risk Stays Realistic:</strong> Far-off forest fires bring smoky skies without turning into fake high burn odds for your home.</li>
+            <li><strong>Tailored Advice:</strong> Tips reference your exact town/pin, closest fire distance, nearest forest, and peak year.</li>
           </ul>
         </div>
       </div>
@@ -445,7 +461,7 @@ export async function mount(el, ctx) {
   function renderBrief(brief, sourceLabel, isLoading = false) {
     const srcEl = ref('aiSource');
     srcEl.innerHTML = isLoading
-      ? `<span class="ember-spinner ember-spinner--sm" aria-hidden="true"></span><span>${escHtml(sourceLabel)}</span>`
+      ? `<span class="vr-spinner vr-spinner--sm" aria-hidden="true"></span><span>${escHtml(sourceLabel)}</span>`
       : escHtml(sourceLabel);
     ref('aiHeadline').textContent = brief.headline;
     ref('aiBody').textContent = brief.riskOutlook;
@@ -453,7 +469,7 @@ export async function mount(el, ctx) {
     driversEl.innerHTML = (brief.priorityZones || []).slice(0, 3).map((z) =>
       `<div class="f4-driver"><strong>${escHtml(z.region)} · ${escHtml(z.riskLevel)}</strong> — ${escHtml(z.driver)}</div>`,
     ).join('');
-    ref('aiSmoke').innerHTML = `<strong>Air-quality link:</strong> ${escHtml(brief.smokeNote)}`;
+    ref('aiSmoke').innerHTML = `<strong>Smoke note:</strong> ${escHtml(brief.smokeNote)}`;
   }
 
   function renderChatLog() {
@@ -464,7 +480,7 @@ export async function mount(el, ctx) {
     }
     chatLog.hidden = false;
     chatLog.innerHTML = '';
-    for (const item of chatHistory.slice(-4)) {
+    for (const item of chatHistory.slice(-5)) {
       const box = document.createElement('div');
       box.className = 'f4-msg';
       const qEl = document.createElement('div');
@@ -476,25 +492,29 @@ export async function mount(el, ctx) {
       const metaRow = document.createElement('div');
       metaRow.className = 'f4-msg-meta';
       const noteSpan = document.createElement('span');
-      noteSpan.textContent = item.takeaway || (item.source === 'gemini-4-hydrogen' ? 'Gemini AI' : 'Grounded Trend Model');
+      noteSpan.textContent = item.takeaway || (item.source === 'gemini-4-hydrogen' ? 'Variant-R AI' : 'Archive Data Search');
       metaRow.appendChild(noteSpan);
-      if (item.suggestedScenario && (item.suggestedScenario.horizonYear || item.suggestedScenario.warmingPct !== undefined || item.suggestedScenario.showPredictedOverlay || item.suggestedScenario.focusYear)) {
-        const sc = item.suggestedScenario;
+      const sc = item.suggestedScenario;
+      if (sc && (sc.countryId || sc.horizonYear || sc.warmingPct !== undefined || sc.showPredictedOverlay || sc.focusYear || sc.focus)) {
         const applyBtn = document.createElement('button');
         applyBtn.type = 'button';
         applyBtn.className = 'f4-apply-btn';
         const parts = [];
+        if (sc.countryId) parts.push(String(sc.countryId).toUpperCase());
         if (sc.focusYear) parts.push(`${sc.focusYear}`);
         if (sc.horizonYear) parts.push(`${sc.horizonYear}`);
         if (sc.warmingPct !== undefined) parts.push(`+${sc.warmingPct}%`);
+        if (sc.focus) parts.push(sc.focus === 'pm25_em' ? 'Smoke' : 'Fire');
         if (sc.showPredictedOverlay) parts.push('Map');
         applyBtn.textContent = `Apply (${parts.join(' · ')})`;
         applyBtn.addEventListener('click', () => {
           const patch = { playing: false };
+          if (sc.countryId && ['canada', 'usa', 'russia'].includes(sc.countryId)) patch.countryId = sc.countryId;
           if (sc.horizonYear && HORIZONS.includes(Number(sc.horizonYear))) patch.horizonYear = Number(sc.horizonYear);
           if (sc.warmingPct !== undefined) patch.warmingPct = Number(sc.warmingPct);
           if (sc.showPredictedOverlay !== undefined) patch.showPredictedOverlay = Boolean(sc.showPredictedOverlay);
           if (sc.focusYear) patch.year = Number(sc.focusYear);
+          if (sc.focus) patch.focus = sc.focus;
           store.set(patch);
         });
         metaRow.appendChild(applyBtn);
@@ -508,11 +528,12 @@ export async function mount(el, ctx) {
   function renderQuickPrompts(state, f) {
     const cName = f.countryName;
     const yr = Number(state.year);
-    const lead = f.topZones[0]?.region || cName;
+    const pinLabel = state.localPin?.label || 'my city';
     const suggestions = [
-      `Why did ${yr} burn hardest in ${lead}?`,
-      `How does smoke PM₂.₅ compare to fire detections in ${yr}?`,
-      `Test +35% extreme drought by 2035 on the map`,
+      'Compare Canada, USA, and Russia peak fire years',
+      `Which forests burned most in ${cName} & why did ${yr} spike?`,
+      `How safe is ${pinLabel} from flames vs. smoke haze?`,
+      'Show +35% dry stress by 2035 on the map',
     ];
     promptsEl.innerHTML = '';
     for (const q of suggestions) {
@@ -523,14 +544,14 @@ export async function mount(el, ctx) {
       b.addEventListener('click', () => submitQuestion(q));
       promptsEl.appendChild(b);
     }
-    askInput.placeholder = `Ask about ${cName} ${yr}, ${lead}, or a warming scenario…`;
+    askInput.placeholder = `Ask about ${cName} ${yr}, forests, ${pinLabel}, or compare countries…`;
   }
 
   async function requestAiBrief(forecast, forceLive = false) {
     const my = ++aiToken;
-    ref('aiSource').innerHTML = `<span class="ember-spinner ember-spinner--sm" aria-hidden="true"></span><span>${forceLive ? 'Contacting AI…' : 'Updating brief…'}</span>`;
+    ref('aiSource').innerHTML = `<span class="vr-spinner vr-spinner--sm" aria-hidden="true"></span><span>${forceLive ? 'Updating…' : 'Refreshing…'}</span>`;
     aiBtn.disabled = true;
-    aiBtn.innerHTML = '<span class="ember-spinner ember-spinner--sm" aria-hidden="true"></span><span>Refreshing…</span>';
+    aiBtn.innerHTML = '<span class="vr-spinner vr-spinner--sm" aria-hidden="true"></span><span>Refreshing…</span>';
     const scCtx = summarizeScopeContext(scope, store.get().year);
     const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
     const timer = ctrl ? setTimeout(() => ctrl.abort(), 12000) : null;
@@ -556,11 +577,11 @@ export async function mount(el, ctx) {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       if (my !== aiToken) return;
-      const srcLabel = json.fallback ? 'Statistical trend brief' : 'Gemini AI synthesis';
+      const srcLabel = json.fallback ? 'Trend summary' : 'Variant-R AI';
       if (json.brief) renderBrief(json.brief, srcLabel, false);
     } catch {
       if (my !== aiToken) return;
-      renderBrief(buildDeterministicBrief(forecast), 'Statistical trend brief', false);
+      renderBrief(buildDeterministicBrief(forecast), 'Trend summary', false);
     } finally {
       if (timer) clearTimeout(timer);
       if (my === aiToken) {
@@ -575,17 +596,34 @@ export async function mount(el, ctx) {
     if (!q || !scope || !lastForecast) return;
     askInput.value = '';
     askSubmit.disabled = true;
-    askSubmit.innerHTML = '<span class="ember-spinner ember-spinner--sm ember-spinner--light" aria-hidden="true"></span><span>Thinking…</span>';
+    askSubmit.innerHTML = '<span class="vr-spinner vr-spinner--sm vr-spinner--light" aria-hidden="true"></span><span>Searching…</span>';
     const state = store.get();
-    const fullContext = {
-      ...summarizeScopeContext(scope, state.year),
-      horizonYear: lastForecast.horizonYear,
-      warmingPct: lastForecast.warmingPct,
-      projectedFrpPct: lastForecast.projectedFrpPct,
-      projectedCo2Pct: lastForecast.projectedCo2Pct,
-      plumeRiskScore: lastForecast.plumeRiskScore,
-      topZones: lastForecast.topZones,
-    };
+
+    const [allScopes, pinGrids] = await Promise.all([
+      loadAllScopes(),
+      state.localPin?.countryId ? data.getAllFireGrids(state.localPin.countryId) : Promise.resolve([]),
+    ]);
+
+    const localRisk = state.localPin
+      ? computeLocalFireRisk({
+          countryId: state.localPin.countryId,
+          lat: state.localPin.lat,
+          lon: state.localPin.lon,
+          label: state.localPin.label,
+          grids: pinGrids,
+          scope,
+          horizonYear: lastForecast.horizonYear,
+          warmingPct: lastForecast.warmingPct,
+        })
+      : null;
+
+    const fullContext = buildAiDataDigest({
+      scope,
+      year: state.year,
+      allScopes,
+      localRisk,
+      forecast: lastForecast,
+    });
 
     const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
     const timer = ctrl ? setTimeout(() => ctrl.abort(), 14000) : null;
@@ -611,12 +649,12 @@ export async function mount(el, ctx) {
       renderChatLog();
     } catch {
       const fb = buildDeterministicAnswer(q, fullContext);
-      chatHistory.push({ q, a: fb.answer, takeaway: fb.takeaway, source: 'statistical-model', suggestedScenario: fb.suggestedScenario });
+      chatHistory.push({ q, a: fb.answer, takeaway: fb.takeaway, source: 'archive-search', suggestedScenario: fb.suggestedScenario });
       renderChatLog();
     } finally {
       if (timer) clearTimeout(timer);
       askSubmit.disabled = false;
-      askSubmit.textContent = 'Ask AI';
+      askSubmit.textContent = 'Search & Ask';
     }
   }
 
@@ -637,11 +675,11 @@ export async function mount(el, ctx) {
 
     const f = computeForecast({ scope, horizonYear: hYear, warmingPct: wPct });
     lastForecast = f;
-    ref('sub').textContent = `${f.countryName} · ${f.horizonYear} outlook (+${f.warmingPct}% dry-season stress) · Sen slope ${f.senSlopePerYr >= 0 ? '+' : ''}${fmtCompact(f.senSlopePerYr)} MW/yr`;
+    ref('sub').textContent = `${f.countryName} · ${f.horizonYear} outlook (+${f.warmingPct}% dry stress) · Slope ${f.senSlopePerYr >= 0 ? '+' : ''}${fmtCompact(f.senSlopePerYr)} MW/yr`;
     ref('kpiFrp').textContent = `${fmtCompact(f.projectedFrpMw)} MW (+${f.projectedFrpPct}%)`;
     ref('kpiCo2').textContent = `${fmtMass(f.projectedCo2Tonnes, 'Mt')} (+${f.projectedCo2Pct}%)`;
     ref('kpiRisk').textContent = `${f.plumeRiskScore}/100 · ${f.plumeTier}`;
-    ref('trajMeta').textContent = `2018–${f.horizonYear} · +${f.projectedFrpPct}% vs med`;
+    ref('trajMeta').textContent = `2018–${f.horizonYear} · +${f.projectedFrpPct}% vs typical`;
     ref('trajChart').innerHTML = renderTrajectorySvg(f, fmtCompactTick);
 
     const maxDelta = Math.max(1, ...f.topZones.map((z) => z.deltaPct));
@@ -654,11 +692,11 @@ export async function mount(el, ctx) {
       </div>`;
     }).join('');
 
-    ref('cap').textContent = `Deterministic Theil-Sen drift combined with +${wPct}% vapor-pressure stress through ${hYear}; see "Methodology & Data Used" above for full equations and archive sources.`;
+    ref('cap').textContent = `Combines 25-year fire-heat trends with +${wPct}% dry-weather stress to ${hYear}; click "Methodology & Data Used" above for details.`;
     renderQuickPrompts(state, f);
     renderMethodology(f);
 
-    renderBrief(buildDeterministicBrief(f), 'Statistical trend brief', fetchAi);
+    renderBrief(buildDeterministicBrief(f), 'Trend summary', fetchAi);
     if (fetchAi) {
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => requestAiBrief(f, false), 220);
@@ -673,7 +711,7 @@ export async function mount(el, ctx) {
 
   async function build(state) {
     const my = ++scopeToken;
-    if (!scope) spinner(el, 'Loading forecast & AI analyst…');
+    if (!scope) spinner(el, 'Loading forecast & AI search…');
     const sc = await data.getScope(state);
     if (my !== scopeToken) return;
     scope = sc;
@@ -699,7 +737,7 @@ export async function mount(el, ctx) {
       || state.showPredictedOverlay !== prev.showPredictedOverlay
     ) {
       renderForecast(state, state.horizonYear !== prev.horizonYear || state.warmingPct !== prev.warmingPct);
-    } else if (state.year !== prev.year && lastForecast) {
+    } else if ((state.year !== prev.year || state.localPin !== prev.localPin) && lastForecast) {
       renderQuickPrompts(state, lastForecast);
     }
   });
