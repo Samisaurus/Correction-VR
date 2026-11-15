@@ -371,6 +371,11 @@ async function resolveSourcesForYear(scope, kind, year) {
           return { sources: picked.map((e) => e.url), gridUrl: gridEntry ? gridEntry.gridUrl : null };
         }
       }
+      const emFiles = entry && Array.isArray(entry.emissionsByYearFiles) ? entry.emissionsByYearFiles : [];
+      const emMatch = emFiles.find((e) => e.year === year);
+      if (emMatch) {
+        return { sources: [], gridUrl: `./data/fire-grid/${scope}-${year}.json`, fromEmissions: true };
+      }
       return { sources: [], gridUrl: null };
     }
     if (kind === 'air') {
@@ -507,6 +512,8 @@ async function loadSummaryData(entry, preIndexed) {
         topForests: detail.topForests,
         topNationalForests: detail.topNationalForests,
         sensor: detail.sensor,
+        hasSpatialGrid: Boolean(detail.hasSpatialGrid ?? prev.hasSpatialGrid),
+        pointsSource: detail.pointsSource || prev.pointsSource || null,
         summaryOnly: Boolean(detail.summaryOnly || prev.summaryOnly),
       });
     }

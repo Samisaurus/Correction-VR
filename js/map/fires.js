@@ -158,9 +158,10 @@ export function addLayer(map, ctx) {
     const locLine = locParts.length ? `<br>${locParts.join(' · ')}` : '';
     const highLine = Number(p.high_frp) > 0 ? ` (${fmt(p.high_frp, 'fire_count')} high-FRP)` : '';
     const peakLine = Number(p.max_frp) > 0 ? ` · peak ${fmt(p.max_frp, 'fire_frp')} MW` : '';
+    const frpPart = Number(p.frp_sum) > 0 ? `${fmt(p.frp_sum, 'fire_frp')} MW sum${peakLine} · ` : 'MODIS GFAS locs · ';
     map.getCanvas().style.cursor = 'pointer';
     popup.setLngLat(e.lngLat)
-      .setHTML(`<strong>${dens} / 5 km²</strong> · ${fmt(p.count, 'fire_count')} detections${highLine}<br>${fmt(p.frp_sum, 'fire_frp')} MW sum${peakLine} · ${p.first}–${p.last}${locLine}`)
+      .setHTML(`<strong>${dens} / 5 km²</strong> · ${fmt(p.count, 'fire_count')} detections${highLine}<br>${frpPart}${p.first}–${p.last}${locLine}`)
       .addTo(map);
   });
   map.on('mousemove', 'fires-dot', (e) => popup.setLngLat(e.lngLat));

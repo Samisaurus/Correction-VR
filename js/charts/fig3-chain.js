@@ -148,8 +148,12 @@ const STYLE = `
 .f3-note { font-size: 12.5px; line-height: 1.5; margin: 6px 0 0; color: var(--c-muted); }
 
 .f3-dispatch {
-  padding-top: 10px;
+  margin-top: 2px;
+  padding: 8px 10px 8px 13px;
   border-top: 1px solid var(--c-edge);
+  border-left: 3px solid var(--c-fire);
+  background: linear-gradient(90deg, rgba(213, 94, 0, 0.04), transparent 72%);
+  border-radius: 0 4px 4px 0;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -161,7 +165,7 @@ const STYLE = `
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--c-muted);
+  color: var(--c-fire);
 }
 .f3-dispatch-body {
   margin: 0;

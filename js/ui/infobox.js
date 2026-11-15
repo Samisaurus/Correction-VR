@@ -142,9 +142,11 @@ export async function mount(el, ctx) {
     const { toggleBar, toggleBtn, detailEl, detailChips, detailTableBody, detailTableHead, detailTitle, tabYearBtn, tabAllBtn } = current;
     const summary = scope.summary;
     const yrRow = summary?.byYear?.get(yr) || null;
+    const emYr = scope.emissions?.years?.[yr] || null;
     const allForests = Array.isArray(summary?.allForests) ? summary.allForests : [];
     const fyRows = summary?.forestYearsByYear?.[yr] || null;
-    const hasDetails = !!(yrRow || allForests.length || fyRows);
+    const hasEmForests = !!(emYr && (emYr.topForests?.length || emYr.topRegions?.length));
+    const hasDetails = !!(yrRow || allForests.length || fyRows || hasEmForests);
 
     toggleBar.hidden = !hasDetails;
     if (!hasDetails) {
@@ -152,9 +154,9 @@ export async function mount(el, ctx) {
       return;
     }
 
-    const activeCount = (fyRows?.length) || (yrRow?.topForests?.length) || allForests.length || 0;
+    const activeCount = (fyRows?.length) || (yrRow?.topForests?.length) || (emYr?.topForests?.length) || allForests.length || 0;
     toggleBtn.setAttribute('aria-expanded', String(detailOpen));
-    toggleBtn.innerHTML = `<span>Active Forests &amp; Sensors (${activeCount || yr})</span><span>${detailOpen ? '▾' : '▸'}</span>`;
+    toggleBtn.innerHTML = `<span>${yrRow ? 'Active Forests &amp; Sensors' : 'Active Forests &amp; Emissions'} (${activeCount || yr})</span><span>${detailOpen ? '▾' : '▸'}</span>`;
     detailEl.hidden = !detailOpen;
     if (!detailOpen) return;
 
@@ -211,10 +213,19 @@ export async function mount(el, ctx) {
       detailTableHead.innerHTML = `<tr><th>Forest / Area</th><th>Region</th><th class="num">${escHtml(yrRow.sensor || 'Det.')}</th><th class="num">FRP MW</th></tr>`;
       const filtered = q ? yrRow.topForests.filter((f) => f.name.toLowerCase().includes(q) || (f.state && f.state.toLowerCase().includes(q))) : yrRow.topForests;
       detailTableBody.innerHTML = filtered.length
-        ? filtered.map((f) => `<tr><td>${escHtml(f.name)}</td><td>${escHtml(f.state || '—')}</td><td class="num">${f.count.toLocaleString()}</td><td class="num">${f.frpMw.toLocaleString()}</td></tr>`).join('')
+        ? filtered.map((f) => `<tr><td>${escHtml(f.name)}</td><td>${escHtml(f.state || '—')}</td><td class="num">${f.count.toLocaleString()}</td><td class="num">${f.frpMw ? f.frpMw.toLocaleString() : '—'}</td></tr>`).join('')
         : '<tr><td colspan="4" class="ibx-missing">No matching forests in this year</td></tr>';
       current.forestWrap.hidden = false;
       current.searchInput.hidden = yrRow.topForests.length <= 3 && !q;
+    } else if (emYr?.topForests?.length) {
+      detailTitle.textContent = `${yr} CAMS GFAS Top Forests`;
+      detailTableHead.innerHTML = '<tr><th>Forest / Area</th><th>Region</th><th class="num">CO₂ Mt</th><th class="num">PM₂.₅ kt</th></tr>';
+      const filtered = q ? emYr.topForests.filter((f) => f.name.toLowerCase().includes(q) || (f.region && f.region.toLowerCase().includes(q))) : emYr.topForests;
+      detailTableBody.innerHTML = filtered.length
+        ? filtered.map((f) => `<tr><td>${escHtml(f.name)}</td><td>${escHtml(f.region || '—')}</td><td class="num">${(f.co2 / 1e6).toFixed(2)}</td><td class="num">${(f.pm25 / 1e3).toFixed(1)}</td></tr>`).join('')
+        : '<tr><td colspan="4" class="ibx-missing">No matching forests in this year</td></tr>';
+      current.forestWrap.hidden = false;
+      current.searchInput.hidden = emYr.topForests.length <= 3 && !q;
     } else {
       current.forestWrap.hidden = true;
       current.searchInput.hidden = true;
@@ -387,7 +398,9 @@ export async function mount(el, ctx) {
         } else if (spec.id === 'viirs_count' && yr < 2012) {
           deltaValEl.textContent = 'Pre-VIIRS era';
         } else if (spec.id === 'fire_frp' && value === null && yrRow) {
-          deltaValEl.textContent = 'Summary counts only';
+          deltaValEl.textContent = yrRow.hasSpatialGrid ? 'GFAS loc. counts only' : 'Summary counts only';
+        } else if (value === null && scope.emissions?.years?.[yr] && (spec.id === 'fire_count' || spec.id === 'fire_frp' || spec.id === 'viirs_count')) {
+          deltaValEl.textContent = 'CAMS emissions active';
         } else if (value !== null && spec.id === 'fire_frp' && fireSummary?.sensor) {
           deltaValEl.textContent = `${fireSummary.sensor} live`;
         } else {

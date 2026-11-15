@@ -243,16 +243,105 @@ export function computeForecast({ scope, baseFires = null, horizonYear = 2030, w
 export function buildDeterministicBrief(f) {
   const lead = f.topZones[0]?.region || f.countryName;
   const runner = f.topZones[1]?.region;
+  const third = f.topZones[2]?.region;
   const regionPhrase = runner ? `${lead} and ${runner}` : lead;
+  const regimeNote = f.warmingPct >= 25
+    ? 'Severe vapor-pressure deficits turn cured northern fuels and deep duff layers into multi-week crowning corridors'
+    : f.warmingPct >= 15
+      ? 'Longer late-summer drying windows amplify lightning holdovers and conifer canopy stress'
+      : 'Persistent seasonal drought slowly compounds baseline ignition pressure';
 
   return {
-    headline: `${f.countryName} ${f.horizonYear} Outlook: +${f.projectedFrpPct}% Fire Energy in ${lead}`,
-    riskOutlook: `Under a +${f.warmingPct}% dry-season stress scenario by ${f.horizonYear}, Theil-Sen momentum and seasonal moisture deficits point to concentrated radiative heat across ${regionPhrase}, lifting total fire power +${f.projectedFrpPct}% and GFAS CO₂ +${f.projectedCo2Pct}% above historical medians.`,
+    headline: `${f.countryName} ${f.horizonYear}: ${lead} anchors a +${f.projectedFrpPct}% fire-energy shift`,
+    riskOutlook: `${regimeNote} across ${regionPhrase}${third ? ` (with secondary pressure into ${third})` : ''}. Combined Theil-Sen drift and +${f.warmingPct}% dry-season stress push radiative energy +${f.projectedFrpPct}% and GFAS carbon output +${f.projectedCo2Pct}% above historical medians.`,
     priorityZones: f.topZones.slice(0, 3).map((z) => ({
       region: z.region,
       riskLevel: z.tier,
       driver: z.deltaPct >= 45 ? 'Extended summer vapor-pressure deficit & cured canopy' : 'Compounding lightning ignitions & dry duff',
     })),
-    smokeNote: `${f.plumeTier} plume stress (${f.plumeRiskScore}/100): Dense boreal smoke from ${lead} raises downwind PM₂.₅ haze and black-carbon transport during peak late-summer wind events.`,
+    smokeNote: `${f.plumeTier} plume stress (${f.plumeRiskScore}/100): Dense smoke plumes lofted from ${lead} degrade downwind airsheds with fine PM₂.₅ haze and light-absorbing black carbon during peak synoptic wind corridors.`,
+  };
+}
+
+export function summarizeScopeContext(scope, year) {
+  const yr = Number(year) || 2023;
+  const meta = scope?.meta || {};
+  const emYears = scope?.emissions?.years || {};
+  const emMed = scope?.emissions?.medians?.co2 || 0;
+  const emYr = emYears[yr] || null;
+  const yrRow = scope?.summary?.byYear?.get(yr) || null;
+  const rankCo2 = scope?.emissions?.ranksByYear?.[yr]?.co2 || null;
+
+  const peakCo2Years = Object.entries(emYears)
+    .map(([y, v]) => ({ year: Number(y), co2Mt: Number(((v.co2 || 0) / 1e6).toFixed(1)), topRegion: v.topRegions?.[0]?.name || '' }))
+    .sort((a, b) => b.co2Mt - a.co2Mt)
+    .slice(0, 3);
+
+  return {
+    scopePath: meta.path || 'usa',
+    countryName: meta.name || 'United States',
+    selectedYear: yr,
+    medianCo2Mt: emMed ? Number((emMed / 1e6).toFixed(1)) : null,
+    selectedYearCo2Mt: emYr ? Number((emYr.co2 / 1e6).toFixed(1)) : null,
+    selectedYearPm25Kt: emYr ? Number((emYr.pm25 / 1e3).toFixed(1)) : null,
+    selectedYearRank: rankCo2,
+    selectedYearDetections: yrRow ? (yrRow.modisTotal || yrRow.detections || yrRow.allTotal || null) : null,
+    selectedYearViirs: yrRow?.viirsTotal || null,
+    selectedYearTopRegions: (emYr?.topRegions || yrRow?.topStates || []).slice(0, 4).map((r) => ({
+      name: r.name,
+      co2Mt: r.co2 ? Number((r.co2 / 1e6).toFixed(1)) : null,
+      count: r.count || null,
+    })),
+    peakCo2Years,
+  };
+}
+
+export function buildDeterministicAnswer(question, ctx = {}) {
+  const q = String(question || '').trim().toLowerCase();
+  const cName = ctx.countryName || 'this region';
+  const yr = Number(ctx.selectedYear) || 2023;
+  const hYr = Number(ctx.horizonYear) || 2030;
+  const wPct = Number(ctx.warmingPct) ?? 15;
+  const lead = ctx.topZones?.[0]?.region || ctx.selectedYearTopRegions?.[0]?.name || cName;
+  const co2Mt = ctx.selectedYearCo2Mt;
+  const pm25Kt = ctx.selectedYearPm25Kt;
+  const peaks = Array.isArray(ctx.peakCo2Years) ? ctx.peakCo2Years : [];
+  const peakStr = peaks.slice(0, 2).map((p) => `${p.year} (${p.co2Mt} Mt CO₂${p.topRegion ? ` in ${p.topRegion}` : ''})`).join(' and ');
+
+  let suggestedScenario = null;
+  const pctMatch = q.match(/\+?(\d{1,2})\s*%/);
+  const yrMatch = q.match(/\b(2027|2030|2035)\b/);
+  if (pctMatch || yrMatch || /extreme|severe|worst.?case|stress|map|overlay|hotspot/.test(q)) {
+    const nextW = pctMatch ? clamp(Math.round(Number(pctMatch[1]) / 5) * 5, 0, 40) : (/extreme|severe|worst/.test(q) ? 35 : wPct);
+    const nextH = yrMatch ? Number(yrMatch[1]) : (/2035|long/.test(q) ? 2035 : hYr);
+    const showOverlay = /map|overlay|hotspot|zone|where|show/.test(q) ? true : undefined;
+    suggestedScenario = {
+      horizonYear: nextH,
+      warmingPct: nextW,
+      ...(showOverlay !== undefined ? { showPredictedOverlay: showOverlay } : {}),
+    };
+  }
+
+  let answer;
+  if (/why|cause|surge|driver|peak|worst|high/.test(q)) {
+    answer = co2Mt
+      ? `In ${yr}, ${cName} released ${co2Mt} Mt CO₂${ctx.selectedYearRank ? ` (#${ctx.selectedYearRank} of 24 GFAS years)` : ''}, led by concentrated burning in ${lead}. Across the full archive, ${cName}'s heaviest carbon years—such as ${peakStr || yr}—occur when multi-month dry-season anomalies overlap lightning-rich continental corridors.`
+      : `Across ${cName}'s archive, the sharpest surges cluster when synchronous summer blocking ridges cure biomass rapidly across ${lead}${peakStr ? `, exemplified by ${peakStr}` : ''}.`;
+  } else if (/smoke|pm2|air|haze|carbon|co2/.test(q)) {
+    answer = co2Mt && pm25Kt
+      ? `During ${yr}, ${cName} lofted ${co2Mt} Mt CO₂ alongside ${pm25Kt} kt of fine PM₂.₅ smoke—primarily from ${lead}. Because smoldering duff and permafrost soils emit disproportionately more PM₂.₅ and CO per unit of radiative heat than brief grass fires, smoke hazards persist well downwind.`
+      : `Smoke tonnage scales nonlinearly with organic fuel depth: peat and boreal duff layers in ${lead} yield heavy PM₂.₅ and black-carbon plumes that degrade regional air quality even hundreds of kilometers downwind.`;
+  } else if (/missing|csv|2011|2012|2019|2021|sensor|modis|viirs/.test(q)) {
+    answer = `${cName} tracks fire activity across dual MODIS (1 km, 2002–2026) and higher-sensitivity VIIRS (375 m, 2012+) instruments paired with Copernicus CAMS GFAS emissions (2003–2026). Even where individual point-detection files weren't archived on disk for a given year, CAMS GFAS totals and workbook sensor summaries preserve the continuous record in charts and telemetry.`;
+  } else if (suggestedScenario) {
+    answer = `Shifting the scenario to ${suggestedScenario.horizonYear} at +${suggestedScenario.warmingPct}% dry-season stress amplifies late-summer vapor deficits along ${lead}, accelerating projected FRP (~+${ctx.projectedFrpPct || 25}% currently at ${hYr}/+${wPct}%) and widening high-risk hotspot corridors. Click Apply below to project those parameters directly onto the globe and model.`;
+  } else {
+    answer = `Looking at ${cName} (${yr}${co2Mt ? `: ${co2Mt} Mt CO₂` : ''}), activity pivots around ${lead}${peakStr ? `, with historic extremes in ${peakStr}` : ''}. Under your +${wPct}% warming stress horizon to ${hYr}, projected fire energy rises +${ctx.projectedFrpPct ?? 0}% above the long-run median—ask about specific regions, smoke aerosols, or test a +35% 2035 scenario to explore further.`;
+  }
+
+  return {
+    answer,
+    takeaway: `${cName} · Peak benchmark: ${peakStr || yr} · Focus corridor: ${lead}`,
+    suggestedScenario,
   };
 }

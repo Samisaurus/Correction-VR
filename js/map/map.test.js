@@ -271,9 +271,10 @@ test('buildScopeIndex indexes Russia MODIS+VIIRS and backfills Canada 2021-2025 
 
   const ru = idx.scopes.russia;
   assert.ok(ru);
-  assert.equal(ru.series.fire_count.annual.length, 8);
+  assert.equal(ru.series.fire_count.annual.length, 9, 'Russia MODIS spans 8 point files plus recovered 2026 GFAS locations');
   assert.equal(ru.series.viirs_count.annual.length, 6);
   assert.equal(ru.series.fire_frp.annual.length, 14);
+  assert.ok(ru.years[2026] && ru.years[2026].hasSpatialGrid, 'Russia 2026 recovers spatial grid from emissions_2026.csv');
   assert.ok(ru.years[2010] && ru.years[2010].modisTotal > 10000 && ru.years[2010].topStates.length > 0);
   assert.equal(ru.years[2020].viirsTotal, 765116);
   assert.equal(ru.years[2020].sensor, 'VIIRS');
@@ -350,4 +351,49 @@ test('computeForecast scales monotonically across horizons (2027-2035) and warmi
   assert.ok(brief.riskOutlook.length > 40);
   assert.ok(brief.priorityZones.length >= 2);
   assert.ok(brief.smokeNote && brief.smokeNote.length > 20);
+});
+
+test('Canada 2019 & 2021 recover spatial fire-grid hotspots, monthly MODIS counts, and Russia 2011/2012 expose CAMS regional/forest emissions', async () => {
+  const idx = await getFullScopeIndex();
+
+  const ca = idx.scopes.canada;
+  assert.ok(ca.years[2019].hasSpatialGrid, 'Canada 2019 must have recovered spatial grid');
+  assert.ok(ca.years[2021].hasSpatialGrid, 'Canada 2021 must have recovered spatial grid');
+  assert.ok(ca.years[2019].topStates && ca.years[2019].topStates.length > 0);
+  assert.ok(ca.years[2021].topStates && ca.years[2021].topStates.length > 0);
+  const caMonthly = ca.series.fire_count.monthly;
+  assert.ok(caMonthly.some(([ym]) => ym.startsWith('2019-')), 'Canada monthly fire_count must cover 2019');
+  assert.ok(caMonthly.some(([ym]) => ym.startsWith('2021-')), 'Canada monthly fire_count must cover 2021');
+
+  const ru = idx.scopes.russia;
+  assert.ok(ru.emissions.years[2011].co2 > 200e6 && ru.emissions.years[2011].topRegions.length > 0);
+  assert.ok(ru.emissions.years[2012].co2 > 500e6 && ru.emissions.years[2012].topRegions.length > 0);
+  assert.ok(ru.emissions.years[2012].topForests.some((f) => Boolean(f.region)), 'Russia forest entries must parse region names');
+
+  const grid2019 = JSON.parse(fs.readFileSync('data/fire-grid/canada-2019.json', 'utf8'));
+  const grid2021 = JSON.parse(fs.readFileSync('data/fire-grid/canada-2021.json', 'utf8'));
+  assert.ok(grid2019.features.length > 1000, `expected >1000 gridded cells in Canada 2019, got ${grid2019.features.length}`);
+  assert.ok(grid2021.features.length > 1000, `expected >1000 gridded cells in Canada 2021, got ${grid2021.features.length}`);
+});
+
+test('interactive Q&A fallback and UI editorial modules stay grounded with zero water/fishing copy', async () => {
+  const { buildDeterministicAnswer } = await import('../forecast.js');
+  const res = buildDeterministicAnswer('Test a +35% extreme stress scenario to 2035 on the map', {
+    countryName: 'Russia',
+    selectedYear: 2012,
+    horizonYear: 2030,
+    warmingPct: 15,
+    projectedFrpPct: 28,
+    selectedYearCo2Mt: 615.8,
+    selectedYearPm25Kt: 4200,
+    topZones: [{ region: 'Sakha (Yakutia)' }],
+    peakCo2Years: [{ year: 2021, co2Mt: 969.2, topRegion: 'Sakha (Yakutia)' }],
+  });
+  assert.ok(res.answer.length > 40);
+  assert.deepEqual(res.suggestedScenario, { horizonYear: 2035, warmingPct: 35, showPredictedOverlay: true });
+
+  for (const rel of ['js/ui/tour.js', 'js/ui/slider.js', 'js/ui/header.js', 'js/forecast.js']) {
+    const src = fs.readFileSync(rel, 'utf8');
+    assert.equal(/\b(salmon|fishing|catch_tonnes|fish_value|kd490|chlor_a|watershed)\b/i.test(src), false, `${rel} must contain zero water/fishing terms`);
+  }
 });

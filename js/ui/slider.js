@@ -19,10 +19,17 @@ const STYLE = `
 .sld-play:active { transform: scale(0.93); transition-duration: 60ms; }
 .sld-play[aria-pressed="true"] { border-color: var(--c-link); color: var(--c-link); }
 .sld-play svg { width: 14px; height: 14px; fill: currentColor; }
+.sld-year-wrap { display: flex; flex-direction: column; min-width: 112px; gap: 2px; }
 .sld-year {
   font-family: var(--f-mono); font-size: 22px; font-weight: 700; line-height: 1; color: var(--c-ink);
   min-width: 4ch; font-variant-numeric: tabular-nums; letter-spacing: -0.02em;
 }
+.sld-era {
+  font-family: var(--f-sans); font-size: 10.5px; font-weight: 600; color: var(--c-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 124px;
+  line-height: 1.1;
+}
+.sld-era.is-peak { color: var(--c-fire); }
 .sld-track { position: relative; flex: 1 1 auto; min-width: 0; height: 48px; }
 .sld-rail, .sld-fill { position: absolute; top: 13px; height: 6px; border-radius: 3px; pointer-events: none; }
 .sld-rail { left: 8px; right: 8px; background: var(--c-edge); }
@@ -66,7 +73,9 @@ const STYLE = `
 .sld-label.is-selected { color: var(--c-ink); font-weight: 700; }
 @media (max-width: 1080px) { .sld-label:nth-child(even) { display: none; } }
 @media (max-width: 640px) {
+  .sld-year-wrap { min-width: 82px; }
   .sld-year { font-size: 18px; }
+  .sld-era { max-width: 88px; font-size: 9.5px; }
   .sld-root { gap: 10px; }
   .sld-label:nth-child(n) { display: none; }
   .sld-label:nth-child(6n+1) { display: block; }
@@ -97,9 +106,45 @@ export async function mount(el, ctx) {
   const play = document.createElement('button');
   play.type = 'button';
   play.className = 'sld-play';
+  const ERA_TAG = {
+    usa: {
+      2002: 'Biscuit & Hayman baseline',
+      2012: 'High Park & Long Draw',
+      2015: 'Alaska & Cascades peak',
+      2018: 'Camp & Mendocino season',
+      2020: 'Western siege mega-year',
+      2021: 'Dixie & Caldor (#1 CO₂)',
+      2026: 'Partial season (YTD)',
+    },
+    canada: {
+      2004: 'Yukon interior flare-up',
+      2014: 'NWT boreal surge',
+      2017: 'B.C. Plateau crisis',
+      2019: 'Northern Alberta runs',
+      2021: 'Lytton & boreal drought',
+      2023: 'Continental mega-season',
+      2024: 'Jasper & western smoke',
+      2026: 'Partial season (YTD)',
+    },
+    russia: {
+      2003: 'Transbaikal carbon surge',
+      2010: 'Heatwave & peat haze',
+      2012: 'Siberian taiga benchmark',
+      2019: 'Krasnoyarsk canopy smoke',
+      2020: 'Sakha thermal record',
+      2021: 'Yakutia all-time peak',
+      2026: 'Partial season (YTD)',
+    },
+  };
+
+  const yearWrap = document.createElement('div');
+  yearWrap.className = 'sld-year-wrap';
   const yearEl = document.createElement('div');
   yearEl.className = 'sld-year';
   yearEl.setAttribute('aria-live', 'polite');
+  const eraEl = document.createElement('div');
+  eraEl.className = 'sld-era';
+  yearWrap.append(yearEl, eraEl);
   const track = document.createElement('div');
   track.className = 'sld-track';
   const rail = document.createElement('div');
@@ -126,7 +171,7 @@ export async function mount(el, ctx) {
     labelEls.set(y, l);
   }
   track.append(rail, fill, input, marks, labels);
-  root.append(play, yearEl, track);
+  root.append(play, yearWrap, track);
   el.appendChild(root);
 
   let timer = null;
@@ -200,6 +245,9 @@ export async function mount(el, ctx) {
       if (labelEls.has(year)) labelEls.get(year).classList.add('is-selected');
       lastYear = year;
     }
+    const eraText = (ERA_TAG[state.countryId] && ERA_TAG[state.countryId][year]) || 'Annual fire chronicle';
+    eraEl.textContent = eraText;
+    eraEl.classList.toggle('is-peak', Boolean(ERA_TAG[state.countryId] && ERA_TAG[state.countryId][year] && year !== 2026));
     if (playing !== lastPlaying) {
       play.innerHTML = playing ? PAUSE_ICON : PLAY_ICON;
       play.setAttribute('aria-label', playing ? 'Pause' : 'Play through the years');

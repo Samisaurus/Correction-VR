@@ -13,6 +13,20 @@ const EMPTY = { type: 'FeatureCollection', features: [] };
 const FONT = ['Noto Sans Regular'];
 const CSS = `
 .map-canvas { position: absolute; inset: 0; }
+.map-notice {
+  position: absolute; top: 12px; left: 12px; z-index: 4; max-width: 340px;
+  padding: 9px 12px; border-radius: 6px;
+  background: rgba(255, 255, 255, 0.94); backdrop-filter: blur(6px);
+  border: 1px solid var(--c-edge); box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+  font-size: 11.5px; line-height: 1.42; color: var(--c-ink);
+}
+.map-notice[hidden] { display: none; }
+.map-notice-k { display: block; font-family: var(--f-mono); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #B45309; margin-bottom: 2px; }
+.map-notice-btn {
+  margin-top: 6px; padding: 3px 9px; border-radius: 4px; border: 1px solid var(--c-edge-hover);
+  background: var(--c-panel); font-family: var(--f-mono); font-size: 10.5px; font-weight: 600; color: var(--c-ink);
+}
+.map-notice-btn:hover { border-color: var(--c-ink); background: var(--c-paper); }
 #map .maplibregl-popup-content { font-family: var(--f-mono); font-size: 12px; color: var(--c-ink); padding: 7px 10px; border-radius: 6px; border: 1px solid var(--c-edge); box-shadow: 0 4px 12px rgba(15, 23, 42, 0.1); }
 #map .maplibregl-ctrl-group { border-radius: 6px; box-shadow: none; border: 1px solid var(--c-edge); }
 #map .maplibregl-ctrl-attrib { font-size: 10px; }
@@ -123,6 +137,13 @@ export async function mount(el, ctx) {
     container = document.createElement('div');
     container.className = 'map-canvas';
     el.insertBefore(container, el.firstChild);
+  }
+  let noticeEl = el.querySelector('.map-notice');
+  if (!noticeEl) {
+    noticeEl = document.createElement('div');
+    noticeEl.className = 'map-notice';
+    noticeEl.hidden = true;
+    el.appendChild(noticeEl);
   }
 
   const regions = await data.getRegions();
@@ -250,6 +271,47 @@ export async function mount(el, ctx) {
         console.info('map: layer update failed', err && err.message ? err.message : err);
       }
     }
+    const hasFires = !!(fires && Array.isArray(fires.features) && fires.features.length);
+    const hasAir = !!(air && Array.isArray(air.features) && air.features.length);
+    if (hasFires) {
+      noticeEl.hidden = true;
+    } else if (scope) {
+      const yr = Number(state.year);
+      const emYr = scope.emissions?.years?.[yr] || null;
+      const yrRow = scope.summary?.byYear?.get(yr) || null;
+      const mappedYears = Object.entries(scope.summary?.byYear ? Object.fromEntries(scope.summary.byYear) : {})
+        .filter(([, r]) => r && !r.summaryOnly && ((r.detections || 0) > 0 || r.hasSpatialGrid))
+        .map(([y]) => Number(y))
+        .sort((a, b) => a - b);
+      const nearestYr = mappedYears.length
+        ? mappedYears.reduce((best, y) => (Math.abs(y - yr) < Math.abs(best - yr) ? y : best), mappedYears[0])
+        : null;
+      const co2Line = emYr ? `${(emYr.co2 / 1e6).toFixed(1)} Mt CO₂ (${emYr.topRegions?.[0]?.name || meta?.shortName})` : '';
+      const countLine = yrRow?.modisTotal ? `${theme.fmtCompact(yrRow.modisTotal)} MODIS + ${theme.fmtCompact(yrRow.viirsTotal || 0)} VIIRS logged` : '';
+      noticeEl.innerHTML = '';
+      const k = document.createElement('span');
+      k.className = 'map-notice-k';
+      k.textContent = hasAir ? 'Plume Grid Active · Point CSV Absent' : 'Summary & Emissions Year (No Point CSV)';
+      const p = document.createElement('div');
+      p.textContent = [
+        `${meta?.shortName || state.countryId} ${yr}:`,
+        co2Line || countLine ? `${[co2Line, countLine].filter(Boolean).join(' · ')} shown in charts & infobox.` : 'No raw detection point archive on disk for this year.',
+        'Raw fire coordinate file was not uploaded for this year.',
+      ].join(' ');
+      noticeEl.append(k, p);
+      if (nearestYr && nearestYr !== yr) {
+        const jBtn = document.createElement('button');
+        jBtn.type = 'button';
+        jBtn.className = 'map-notice-btn';
+        jBtn.textContent = `Jump to nearest mapped year (${nearestYr})`;
+        jBtn.addEventListener('click', () => store.set({ year: nearestYr, playing: false }));
+        noticeEl.appendChild(jBtn);
+      }
+      noticeEl.hidden = false;
+    } else {
+      noticeEl.hidden = true;
+    }
+
     const maxY = regions && Array.isArray(regions.years) ? regions.years[1] : 2026;
     if (state.playing && state.year < maxY) {
       data.getFires(state, state.year + 1);

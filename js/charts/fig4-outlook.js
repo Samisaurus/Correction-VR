@@ -1,10 +1,9 @@
 // js/charts/fig4-outlook.js
-// Purpose: Fig. 4 (#outlook) — Wildfire Horizon & AI Trend Setter beneath Fig. 3.
-//          Combines Theil-Sen statistical momentum, interactive 2027-2035 horizon selector,
-//          warming/dry-season stress slider (+0% to +40%), map predicted-zone overlay toggle,
-//          and Gemini AI server-side synthesis (/api/forecast).
+// Purpose: Fig. 4 (#outlook) — Wildfire Horizon & Interactive AI Trend Setter beneath Fig. 3.
+//          Combines Theil-Sen statistical momentum, 2027-2035 horizon toggles, warming stress slider,
+//          predicted globe hotspot rings, and conversational Gemini AI analysis (/api/forecast & /api/ask).
 
-import { HORIZONS, buildDeterministicBrief, computeForecast } from '../forecast.js';
+import { HORIZONS, buildDeterministicAnswer, buildDeterministicBrief, computeForecast, summarizeScopeContext } from '../forecast.js';
 
 const STYLE = `
 .f4-root { padding: 14px 18px 13px; display: flex; flex-direction: column; gap: 11px; }
@@ -56,7 +55,7 @@ const STYLE = `
 .f4-kpi-v.is-purple { color: #6A3093; }
 .f4-kpi-v.is-warn { color: #B45309; }
 
-.f4-grid { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 12px; align-items: stretch; }
+.f4-grid { display: grid; grid-template-columns: minmax(0, 0.96fr) minmax(0, 1.04fr); gap: 12px; align-items: stretch; }
 .f4-panel {
   border: 1px solid var(--c-edge); border-radius: 5px; background: var(--c-paper);
   padding: 9px 11px; display: flex; flex-direction: column; gap: 8px; min-width: 0;
@@ -76,15 +75,51 @@ const STYLE = `
 .f4-zone-fill { height: 100%; background: linear-gradient(90deg, #6A3093, #D55E00); border-radius: 2px; }
 
 .f4-ai-head { margin: 0; font-family: var(--f-serif); font-size: 14px; font-weight: 700; color: var(--c-ink); line-height: 1.3; }
-.f4-ai-body { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--c-ink); }
+.f4-ai-body { margin: 0; font-size: 12.5px; line-height: 1.48; color: var(--c-ink); }
 .f4-ai-drivers { display: flex; flex-direction: column; gap: 4px; }
 .f4-driver {
   font-size: 11px; line-height: 1.35; padding: 4px 7px;
   border: 1px solid var(--c-edge); border-radius: 4px; background: var(--c-panel); color: var(--c-ink);
 }
 .f4-driver strong { color: #6A3093; font-family: var(--f-mono); font-size: 10.5px; }
-.f4-ai-smoke { margin: 0; padding-top: 6px; border-top: 1px dashed var(--c-edge); font-size: 11.5px; line-height: 1.45; color: var(--c-muted); }
+.f4-ai-smoke { margin: 0; padding-top: 5px; border-top: 1px dashed var(--c-edge); font-size: 11.5px; line-height: 1.42; color: var(--c-muted); }
 .f4-ai-smoke strong { color: var(--c-ink); }
+
+.f4-ask-box {
+  margin-top: auto; padding-top: 8px; border-top: 1px solid var(--c-edge);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.f4-prompts { display: flex; flex-wrap: wrap; gap: 4px; }
+.f4-prompt-btn {
+  padding: 2px 7px; border-radius: 4px; border: 1px solid var(--c-edge); background: var(--c-panel);
+  font-family: var(--f-sans); font-size: 10.5px; font-weight: 500; color: var(--c-muted);
+}
+.f4-prompt-btn:hover { color: var(--c-ink); border-color: #6A3093; background: var(--c-paper); }
+.f4-chat-log {
+  max-height: 142px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px;
+  padding: 6px 8px; background: var(--c-panel); border: 1px solid var(--c-edge); border-radius: 5px;
+}
+.f4-chat-log[hidden] { display: none; }
+.f4-msg { display: flex; flex-direction: column; gap: 3px; font-size: 11.5px; line-height: 1.44; }
+.f4-msg + .f4-msg { padding-top: 6px; border-top: 1px dashed var(--c-edge); }
+.f4-msg-q { font-family: var(--f-mono); font-size: 10.5px; font-weight: 600; color: #6A3093; }
+.f4-msg-a { color: var(--c-ink); }
+.f4-msg-meta { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; font-family: var(--f-mono); font-size: 10px; color: var(--c-muted); }
+.f4-apply-btn {
+  padding: 2px 8px; border-radius: 4px; border: 1px solid #6A3093; background: #6A3093;
+  color: #FFFFFF; font-family: var(--f-mono); font-size: 10px; font-weight: 600;
+}
+.f4-ask-form { display: flex; gap: 6px; align-items: stretch; }
+.f4-ask-input {
+  flex: 1 1 auto; min-width: 0; padding: 5px 9px; border: 1px solid var(--c-edge); border-radius: 5px;
+  background: var(--c-paper); font-family: var(--f-sans); font-size: 12px; color: var(--c-ink);
+}
+.f4-ask-input:focus { outline: 2px solid #6A3093; outline-offset: -1px; border-color: #6A3093; }
+.f4-ask-submit {
+  flex: 0 0 auto; padding: 5px 12px; border-radius: 5px; border: 1px solid #6A3093;
+  background: #6A3093; color: #FFFFFF; font-size: 11.5px; font-weight: 600;
+}
+.f4-ask-submit:hover:not([disabled]) { background: #58257A; border-color: #58257A; }
 .f4-cap { font-size: 11.5px; font-style: italic; color: var(--c-muted); margin: 0; }
 
 @media (max-width: 899px) {
@@ -153,8 +188,8 @@ export async function mount(el, ctx) {
   root.innerHTML = `
     <div class="f4-head">
       <div class="f4-title-wrap">
-        <h3 class="f4-title">Fig. 4 — Wildfire Horizon &amp; AI Trend Setter</h3>
-        <span class="f4-sub" data-ref="sub">Theil-Sen statistical projection + Gemini synthesis</span>
+        <h3 class="f4-title">Fig. 4 — Wildfire Horizon &amp; Interactive AI Analyst</h3>
+        <span class="f4-sub" data-ref="sub">Theil-Sen statistical projection + Gemini conversational lab</span>
       </div>
       <div class="f4-controls">
         <div class="f4-seg" role="group" aria-label="Forecast horizon">
@@ -196,13 +231,21 @@ export async function mount(el, ctx) {
       </div>
       <div class="f4-panel">
         <div class="f4-panel-head">
-          <span class="f4-panel-title">Predictive Synthesis</span>
+          <span class="f4-panel-title">Predictive Synthesis &amp; Field Q&amp;A</span>
           <span class="f4-panel-meta" data-ref="aiSource">Trend model</span>
         </div>
         <h4 class="f4-ai-head" data-ref="aiHeadline">—</h4>
         <p class="f4-ai-body" data-ref="aiBody"></p>
         <div class="f4-ai-drivers" data-ref="aiDrivers"></div>
         <p class="f4-ai-smoke" data-ref="aiSmoke"></p>
+        <div class="f4-ask-box">
+          <div class="f4-prompts" data-ref="prompts"></div>
+          <div class="f4-chat-log" data-ref="chatLog" hidden></div>
+          <form class="f4-ask-form" data-ref="askForm">
+            <input class="f4-ask-input" type="text" data-ref="askInput" placeholder="Ask about a fire spike, smoke corridor, or +35% in 2035…" aria-label="Ask Wildfire Analyst">
+            <button class="f4-ask-submit" type="submit" data-ref="askSubmit">Ask AI</button>
+          </form>
+        </div>
       </div>
     </div>
     <p class="f4-cap" data-ref="cap"></p>
@@ -214,6 +257,11 @@ export async function mount(el, ctx) {
   const overlayBtn = ref('overlayBtn');
   const aiBtn = ref('aiBtn');
   const stressInput = ref('stressInput');
+  const promptsEl = ref('prompts');
+  const chatLog = ref('chatLog');
+  const askForm = ref('askForm');
+  const askInput = ref('askInput');
+  const askSubmit = ref('askSubmit');
 
   for (const btn of horizonBtns) {
     btn.addEventListener('click', () => store.set({ horizonYear: Number(btn.dataset.horizon) }));
@@ -222,9 +270,11 @@ export async function mount(el, ctx) {
   stressInput.addEventListener('input', () => store.set({ warmingPct: Number(stressInput.value) }));
 
   let scope = null;
+  let lastForecast = null;
   let scopeToken = 0;
   let aiToken = 0;
   let debounceTimer = null;
+  const chatHistory = [];
 
   function renderBrief(brief, sourceLabel) {
     ref('aiSource').textContent = sourceLabel;
@@ -237,10 +287,81 @@ export async function mount(el, ctx) {
     ref('aiSmoke').innerHTML = `<strong>Air-quality link:</strong> ${escHtml(brief.smokeNote)}`;
   }
 
+  function renderChatLog() {
+    if (!chatHistory.length) {
+      chatLog.hidden = true;
+      chatLog.innerHTML = '';
+      return;
+    }
+    chatLog.hidden = false;
+    chatLog.innerHTML = '';
+    for (const item of chatHistory.slice(-4)) {
+      const box = document.createElement('div');
+      box.className = 'f4-msg';
+      const qEl = document.createElement('div');
+      qEl.className = 'f4-msg-q';
+      qEl.textContent = `Q: ${item.q}`;
+      const aEl = document.createElement('div');
+      aEl.className = 'f4-msg-a';
+      aEl.textContent = item.a;
+      const metaRow = document.createElement('div');
+      metaRow.className = 'f4-msg-meta';
+      const noteSpan = document.createElement('span');
+      noteSpan.textContent = item.takeaway || (item.source === 'gemini-4-hydrogen' ? 'Gemini 4 AI' : 'Grounded Trend Model');
+      metaRow.appendChild(noteSpan);
+      if (item.suggestedScenario && (item.suggestedScenario.horizonYear || item.suggestedScenario.warmingPct !== undefined || item.suggestedScenario.showPredictedOverlay || item.suggestedScenario.focusYear)) {
+        const sc = item.suggestedScenario;
+        const applyBtn = document.createElement('button');
+        applyBtn.type = 'button';
+        applyBtn.className = 'f4-apply-btn';
+        const parts = [];
+        if (sc.focusYear) parts.push(`${sc.focusYear}`);
+        if (sc.horizonYear) parts.push(`${sc.horizonYear}`);
+        if (sc.warmingPct !== undefined) parts.push(`+${sc.warmingPct}%`);
+        if (sc.showPredictedOverlay) parts.push('Map');
+        applyBtn.textContent = `Apply (${parts.join(' · ')})`;
+        applyBtn.addEventListener('click', () => {
+          const patch = { playing: false };
+          if (sc.horizonYear && HORIZONS.includes(Number(sc.horizonYear))) patch.horizonYear = Number(sc.horizonYear);
+          if (sc.warmingPct !== undefined) patch.warmingPct = Number(sc.warmingPct);
+          if (sc.showPredictedOverlay !== undefined) patch.showPredictedOverlay = Boolean(sc.showPredictedOverlay);
+          if (sc.focusYear) patch.year = Number(sc.focusYear);
+          store.set(patch);
+        });
+        metaRow.appendChild(applyBtn);
+      }
+      box.append(qEl, aEl, metaRow);
+      chatLog.appendChild(box);
+    }
+    chatLog.scrollTop = chatLog.scrollHeight;
+  }
+
+  function renderQuickPrompts(state, f) {
+    const cName = f.countryName;
+    const yr = Number(state.year);
+    const lead = f.topZones[0]?.region || cName;
+    const suggestions = [
+      `Why did ${yr} burn hardest in ${lead}?`,
+      `How does smoke PM₂.₅ compare to fire detections in ${yr}?`,
+      `Test +35% extreme drought by 2035 on the map`,
+    ];
+    promptsEl.innerHTML = '';
+    for (const q of suggestions) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'f4-prompt-btn';
+      b.textContent = q;
+      b.addEventListener('click', () => submitQuestion(q));
+      promptsEl.appendChild(b);
+    }
+    askInput.placeholder = `Ask about ${cName} ${yr}, ${lead}, or a warming scenario…`;
+  }
+
   async function requestAiBrief(forecast, forceLive = false) {
     const my = ++aiToken;
     ref('aiSource').textContent = forceLive ? 'Contacting Gemini AI…' : 'Updating brief…';
     aiBtn.disabled = true;
+    const scCtx = summarizeScopeContext(scope, store.get().year);
     try {
       const res = await fetch('/api/forecast', {
         method: 'POST',
@@ -255,6 +376,8 @@ export async function mount(el, ctx) {
           plumeRiskScore: forecast.plumeRiskScore,
           plumeTier: forecast.plumeTier,
           topZones: forecast.topZones,
+          peakCo2Years: scCtx.peakCo2Years,
+          forceRefresh: forceLive,
         }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -270,6 +393,57 @@ export async function mount(el, ctx) {
     }
   }
 
+  async function submitQuestion(rawQuestion) {
+    const q = String(rawQuestion || '').trim();
+    if (!q || !scope || !lastForecast) return;
+    askInput.value = '';
+    askSubmit.disabled = true;
+    askSubmit.textContent = 'Thinking…';
+    const state = store.get();
+    const fullContext = {
+      ...summarizeScopeContext(scope, state.year),
+      horizonYear: lastForecast.horizonYear,
+      warmingPct: lastForecast.warmingPct,
+      projectedFrpPct: lastForecast.projectedFrpPct,
+      projectedCo2Pct: lastForecast.projectedCo2Pct,
+      plumeRiskScore: lastForecast.plumeRiskScore,
+      topZones: lastForecast.topZones,
+    };
+
+    try {
+      const res = await fetch('/api/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question: q,
+          history: chatHistory.slice(-4).map((x) => ({ q: x.q, a: x.a })),
+          context: fullContext,
+        }),
+      });
+      const json = res.ok ? await res.json() : buildDeterministicAnswer(q, fullContext);
+      chatHistory.push({
+        q,
+        a: json.answer,
+        takeaway: json.takeaway,
+        source: json.source,
+        suggestedScenario: json.suggestedScenario || null,
+      });
+      renderChatLog();
+    } catch {
+      const fb = buildDeterministicAnswer(q, fullContext);
+      chatHistory.push({ q, a: fb.answer, takeaway: fb.takeaway, source: 'statistical-model', suggestedScenario: fb.suggestedScenario });
+      renderChatLog();
+    } finally {
+      askSubmit.disabled = false;
+      askSubmit.textContent = 'Ask AI';
+    }
+  }
+
+  askForm.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    submitQuestion(askInput.value);
+  });
+
   function renderForecast(state, fetchAi = false) {
     if (!scope || !scope.meta) return null;
     const hYear = Number(state.horizonYear) || 2030;
@@ -281,6 +455,7 @@ export async function mount(el, ctx) {
     ref('stressVal').textContent = `+${wPct}%`;
 
     const f = computeForecast({ scope, horizonYear: hYear, warmingPct: wPct });
+    lastForecast = f;
     ref('sub').textContent = `${f.countryName} · ${f.horizonYear} outlook (+${f.warmingPct}% dry-season stress) · Sen slope ${f.senSlopePerYr >= 0 ? '+' : ''}${fmtCompact(f.senSlopePerYr)} MW/yr`;
     ref('kpiFrp').textContent = `${fmtCompact(f.projectedFrpMw)} MW (+${f.projectedFrpPct}%)`;
     ref('kpiCo2').textContent = `${fmtMass(f.projectedCo2Tonnes, 'Mt')} (+${f.projectedCo2Pct}%)`;
@@ -298,9 +473,9 @@ export async function mount(el, ctx) {
       </div>`;
     }).join('');
 
-    ref('cap').textContent = `Fig. 4 — Deterministic Theil-Sen drift combined with +${wPct}% vapor-pressure stress through ${hYear}; toggle "Show Predicted Zones" to map persistent hotspot corridors.`;
+    ref('cap').textContent = `Fig. 4 — Deterministic Theil-Sen drift combined with +${wPct}% vapor-pressure stress through ${hYear}; toggle "Show Predicted Zones" or ask the AI analyst above.`;
+    renderQuickPrompts(state, f);
 
-    // Render immediate deterministic brief cleanly first so panel never flickers blank
     renderBrief(buildDeterministicBrief(f), 'Statistical trend brief');
     if (fetchAi) {
       clearTimeout(debounceTimer);
@@ -328,6 +503,8 @@ export async function mount(el, ctx) {
 
   store.subscribe((state, prev) => {
     if (state.countryId !== prev.countryId) {
+      chatHistory.length = 0;
+      renderChatLog();
       build(state);
     } else if (
       state.horizonYear !== prev.horizonYear
@@ -335,6 +512,8 @@ export async function mount(el, ctx) {
       || state.showPredictedOverlay !== prev.showPredictedOverlay
     ) {
       renderForecast(state, state.horizonYear !== prev.horizonYear || state.warmingPct !== prev.warmingPct);
+    } else if (state.year !== prev.year && lastForecast) {
+      renderQuickPrompts(state, lastForecast);
     }
   });
 

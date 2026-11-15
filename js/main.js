@@ -13,6 +13,7 @@ import * as fig1Mod from './charts/fig1-trend.js';
 import * as fig2Mod from './charts/fig2-before-after.js';
 import * as fig3Mod from './charts/fig3-chain.js';
 import * as fig4Mod from './charts/fig4-outlook.js';
+import { mountTour } from './ui/tour.js';
 
 export const ctx = { store, data, theme };
 
@@ -76,6 +77,7 @@ export async function main() {
     await mountModule(entry.id, entry.mod);
   }
   document.documentElement.dataset.ready = 'true';
+  mountTour(ctx);
 }
 
 main().catch((err) => console.info('main: unexpected failure', err));

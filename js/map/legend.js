@@ -322,7 +322,7 @@ export async function mount(el, ctx) {
     badge.textContent = statusLabel;
 
     const sensorTag = fs?.sensor || yrRow?.sensor || null;
-    let detSub = sensorTag ? `${sensorTag} detections` : 'mapped points';
+    let detSub = sensorTag ? `${sensorTag} detections` : (emYr ? 'point CSV not archived' : 'mapped points');
     if (comparableTotal && medTotal > 0 && (!isViirsOnly || comparableTotal !== medTotal)) {
       const pct = Math.round(((comparableTotal - medTotal) / medTotal) * 100);
       detSub = `${sensorTag === 'VIIRS' && isViirsOnly ? 'VIIRS ' : ''}${pct >= 0 ? '+' : ''}${pct}% vs med`;
@@ -334,11 +334,18 @@ export async function mount(el, ctx) {
       ? `${emRanks?.co2 ? `#${emRanks.co2}/${emYearCount}` : 'CAMS GFAS'}${co2Pct !== null ? ` · ${co2Pct >= 0 ? '+' : ''}${co2Pct}%` : ''}`
       : 'starts 2003';
 
+    const frpSub = maxFrp
+      ? `Peak ${fmtCompact(maxFrp)} MW`
+      : (yrRow?.hasSpatialGrid ? 'GFAS loc. grid mapped' : (yrRow?.summaryOnly ? 'summary counts only' : (emYr ? 'see CO₂ emissions' : 'radiative heat')));
+    const densSub = topStateName
+      ? `Top: ${topStateName}`
+      : (fs?.activeCells ? `${fs.activeCells} hotspots` : 'no point CSV for yr');
+
     kpis.innerHTML = '';
     kpis.append(
       makeKpi('Detections', mappedDetections ? fmtCompact(mappedDetections) : '—', detSub, statusClass === 'is-extreme' ? 'is-hot' : ''),
-      makeKpi('Fire Power', totalFrp ? `${fmtCompact(totalFrp)} MW` : '—', maxFrp ? `Peak ${fmtCompact(maxFrp)} MW` : (yrRow?.summaryOnly ? 'summary counts only' : 'radiative heat'), totalFrp > 2_500_000 ? 'is-warn' : ''),
-      makeKpi('Peak Density', peakDensity > 0 ? `${peakDensity.toFixed(2)} / 5km²` : '—', topStateName ? `Top: ${topStateName}` : (fs?.activeCells ? `${fs.activeCells} hotspots` : 'point grid unavailable'), peakDensity >= 2.2 ? 'is-hot' : peakDensity >= 0.65 ? 'is-warn' : ''),
+      makeKpi('Fire Power', totalFrp ? `${fmtCompact(totalFrp)} MW` : '—', frpSub, totalFrp > 2_500_000 ? 'is-warn' : ''),
+      makeKpi('Peak Density', peakDensity > 0 ? `${peakDensity.toFixed(2)} / 5km²` : '—', densSub, peakDensity >= 2.2 ? 'is-hot' : peakDensity >= 0.65 ? 'is-warn' : ''),
       makeKpi('CO₂ Emissions', emYr ? fmtMass(emYr.co2, 'Mt') : '—', co2Sub, emRatio !== null && emRatio >= 1.75 ? 'is-hot' : emRatio !== null && emRatio >= 1.2 ? 'is-warn' : ''),
     );
 

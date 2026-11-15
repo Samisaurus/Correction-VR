@@ -409,6 +409,7 @@ function finalizeAccumulator(acc) {
       dayCount: d.dayCount,
       nightCount: d.nightCount,
       sensor: d.sensor,
+      hasSpatialGrid: true,
       topStates,
       topForests,
       topNationalForests,
@@ -857,7 +858,10 @@ export function buildScopeIndex(dataRoot = path.resolve('data'), options = {}) {
           const iFor = idx.get('forest_name');
           const yr = iYr !== undefined ? Number(cells[iYr]) : NaN;
           const name = iFor !== undefined ? String(cells[iFor] || '').trim() : '';
-          const region = iReg !== undefined ? String(cells[iReg] || '').trim() : '';
+          let region = iReg !== undefined ? String(cells[iReg] || '').trim() : '';
+          if (!region && name.includes(' - ')) {
+            region = name.slice(name.lastIndexOf(' - ') + 3).trim();
+          }
           if (!Number.isInteger(yr) || !name) return;
           const iCo2 = idx.get('co2_tonnes');
           const iPm = idx.get('pm25_tonnes');
@@ -877,13 +881,22 @@ export function buildScopeIndex(dataRoot = path.resolve('data'), options = {}) {
       }
     }
 
-    // Aggregate pixel-level spatial CAMS GFAS emissions CSVs into air-grid JSONs + monthly CO2/PM2.5 traces
+    // Aggregate pixel-level spatial CAMS GFAS emissions CSVs into air-grid JSONs + monthly CO2/PM2.5 traces,
+    // AND recover MODIS point grids + monthly detection counts for any year missing a separate point CSV (e.g. Canada 2015-2019, 2021-2022)
+    const coveredFireYears = new Set(pickedFiles.map((f) => f.year).filter(Boolean));
     const emMonthlyCo2 = new Map();
     const emMonthlyPm25 = new Map();
+    const fallbackModisByYear = new Map();
     for (const emItem of entry.emissionsByYearFiles || []) {
       const full = resolveFile(dataRoot, emItem.url);
       if (!fs.existsSync(full)) continue;
       const aGrid = writeGrids && Number.isInteger(emItem.year) ? new Map() : null;
+      const needFireFallback = Number.isInteger(emItem.year) && !coveredFireYears.has(emItem.year);
+      const fGrid = writeGrids && needFireFallback ? new Map() : null;
+      const fStates = needFireFallback ? new Map() : null;
+      const fForests = needFireFallback ? new Map() : null;
+      const fMonthly = needFireFallback ? new Map() : null;
+      let fDetections = 0;
       const deg = 0.5;
       parseCsvSync(full, (cells, idx) => {
         const iDate = idx.get('date');
@@ -898,35 +911,99 @@ export function buildScopeIndex(dataRoot = path.resolve('data'), options = {}) {
         const co2 = iCo2 !== undefined ? (Number(cells[iCo2]) || 0) : 0;
         const pm25 = iPm !== undefined ? (Number(cells[iPm]) || 0) : 0;
         const bc = iBc !== undefined ? (Number(cells[iBc]) || 0) : 0;
+        const reg = iReg !== undefined ? (cells[iReg] || '').trim() : '';
+        const forest = iFor !== undefined ? (cells[iFor] || '').trim() : '';
         if (dt.length >= 7 && dt[4] === '-') {
           const ym = dt.slice(0, 7);
           emMonthlyCo2.set(ym, (emMonthlyCo2.get(ym) || 0) + co2);
           emMonthlyPm25.set(ym, (emMonthlyPm25.get(ym) || 0) + pm25);
+          if (fMonthly) fMonthly.set(ym, (fMonthly.get(ym) || 0) + 1);
         }
-        if (aGrid && iLat !== undefined && iLon !== undefined) {
+        if ((aGrid || fGrid || needFireFallback) && iLat !== undefined && iLon !== undefined) {
           const lat = Number(cells[iLat]);
           const lon = Number(cells[iLon]);
           if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
-          const snapLat = Math.floor(lat / deg) * deg + deg / 2;
-          const snapLon = Math.floor(lon / deg) * deg + deg / 2;
-          const key = `${snapLon.toFixed(2)},${snapLat.toFixed(2)}`;
-          const reg = iReg !== undefined ? (cells[iReg] || '').trim() : '';
-          const forest = iFor !== undefined ? (cells[iFor] || '').trim() : '';
-          const cur = aGrid.get(key);
-          if (!cur) {
-            aGrid.set(key, { lon: snapLon, lat: snapLat, co2, pm25, bc, maxPm: pm25, region: reg, forest });
-          } else {
-            cur.co2 += co2;
-            cur.pm25 += pm25;
-            cur.bc += bc;
-            if (pm25 > cur.maxPm) {
-              cur.maxPm = pm25;
-              if (reg) cur.region = reg;
-              if (forest) cur.forest = forest;
+          if (aGrid) {
+            const snapLat = Math.floor(lat / deg) * deg + deg / 2;
+            const snapLon = Math.floor(lon / deg) * deg + deg / 2;
+            const key = `${snapLon.toFixed(2)},${snapLat.toFixed(2)}`;
+            const cur = aGrid.get(key);
+            if (!cur) {
+              aGrid.set(key, { lon: snapLon, lat: snapLat, co2, pm25, bc, maxPm: pm25, region: reg, forest });
+            } else {
+              cur.co2 += co2;
+              cur.pm25 += pm25;
+              cur.bc += bc;
+              if (pm25 > cur.maxPm) {
+                cur.maxPm = pm25;
+                if (reg) cur.region = reg;
+                if (forest) cur.forest = forest;
+              }
+            }
+          }
+          if (needFireFallback) {
+            fDetections += 1;
+            if (reg) fStates.set(reg, (fStates.get(reg) || 0) + 1);
+            if (forest) fForests.set(forest, { count: ((fForests.get(forest)?.count) || 0) + 1, state: reg });
+            if (fGrid) {
+              const sLat = Math.floor(lat / 0.2) * 0.2 + 0.1;
+              const sLon = Math.floor(lon / 0.2) * 0.2 + 0.1;
+              const fKey = `${sLon.toFixed(4)},${sLat.toFixed(4)}`;
+              const curF = fGrid.get(fKey);
+              const dateStr = dt || `${emItem.year}-07-01`;
+              if (!curF) {
+                fGrid.set(fKey, { lon: sLon, lat: sLat, count: 1, frp_sum: 0, max_frp: 0, high_frp: 0, first: dateStr, last: dateStr, state: reg, forest });
+              } else {
+                curF.count += 1;
+                if (dateStr < curF.first) curF.first = dateStr;
+                if (dateStr > curF.last) curF.last = dateStr;
+              }
             }
           }
         }
       });
+      if (needFireFallback && fDetections > 0) {
+        const topStates = Array.from(fStates.entries())
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 12)
+          .map(([name, count]) => ({ name, count, frpMw: 0 }));
+        const topForests = Array.from(fForests.entries())
+          .sort((a, b) => b[1].count - a[1].count)
+          .slice(0, 15)
+          .map(([name, s]) => ({ name, state: s.state, count: s.count, frpMw: 0, inNationalForest: !name.startsWith('Other forest land') }));
+        fallbackModisByYear.set(emItem.year, {
+          detections: fDetections,
+          topStates,
+          topForests,
+          monthly: Array.from(fMonthly.entries()),
+        });
+        if (fGrid && fGrid.size) {
+          const gridDir = path.join(dataRoot, 'fire-grid');
+          fs.mkdirSync(gridDir, { recursive: true });
+          const fc = {
+            type: 'FeatureCollection',
+            scope: scopeKey,
+            year: emItem.year,
+            gridDeg: 0.2,
+            summary: { sensor: 'MODIS (GFAS locs)', fromEmissions: true },
+            features: Array.from(fGrid.values()).map((it) => ({
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: [it.lon, it.lat] },
+              properties: {
+                count: it.count,
+                frp_sum: 0,
+                max_frp: 0,
+                high_frp: 0,
+                first: it.first,
+                last: it.last,
+                state: it.state || undefined,
+                forest: it.forest || undefined,
+              },
+            })),
+          };
+          fs.writeFileSync(path.join(gridDir, `${scopeKey}-${emItem.year}.json`), JSON.stringify(fc));
+        }
+      }
       if (aGrid && aGrid.size) {
         const airDir = path.join(dataRoot, 'air-grid');
         fs.mkdirSync(airDir, { recursive: true });
@@ -1010,17 +1087,58 @@ export function buildScopeIndex(dataRoot = path.resolve('data'), options = {}) {
     const countryEmissions = finalizeEmissions(emByYear);
     const finalizedCountry = finalizeAccumulator(countryAcc);
 
-    // Ensure MODIS & VIIRS summary counts (e.g. Canada 2002-2026 XLSX) backfill series & year details when point CSVs are absent for some years
+    // Ensure MODIS & VIIRS summary counts (e.g. Canada 2002-2026 XLSX) + GFAS MODIS coordinate locations backfill series & year details
+    const fireCountMonthlyMap = new Map((finalizedCountry.series.fire_count?.monthly) || []);
+    if (fallbackModisByYear.size) {
+      const modisAnnMap = new Map((finalizedCountry.series.fire_count?.annual) || []);
+      for (const [yr, fb] of fallbackModisByYear.entries()) {
+        for (const [ym, c] of fb.monthly) {
+          if (!fireCountMonthlyMap.has(ym)) fireCountMonthlyMap.set(ym, c);
+        }
+        if (!modisAnnMap.has(yr) && fb.detections > 0) modisAnnMap.set(yr, fb.detections);
+        if (finalizedCountry.years[yr]) {
+          finalizedCountry.years[yr].hasSpatialGrid = true;
+          finalizedCountry.years[yr].pointsSource = 'MODIS (GFAS locs)';
+          if (!finalizedCountry.years[yr].topStates?.length) finalizedCountry.years[yr].topStates = fb.topStates;
+          if (!finalizedCountry.years[yr].topForests?.length) finalizedCountry.years[yr].topForests = fb.topForests;
+        } else {
+          finalizedCountry.years[yr] = {
+            hasSpatialGrid: true,
+            pointsSource: 'MODIS (GFAS locs)',
+            detections: fb.detections,
+            modisTotal: fb.detections,
+            viirsTotal: 0,
+            totalFrpMw: 0,
+            maxFrpMw: 0,
+            meanFrpMw: 0,
+            highFrpCount: 0,
+            lowFrpCount: 0,
+            sensor: 'MODIS',
+            topStates: fb.topStates,
+            topForests: fb.topForests,
+            topNationalForests: [],
+          };
+        }
+      }
+      finalizedCountry.series.fire_count = {
+        annual: Array.from(modisAnnMap.entries()).sort((a, b) => a[0] - b[0]),
+        monthly: Array.from(fireCountMonthlyMap.entries()).sort((a, b) => a[0].localeCompare(b[0])),
+      };
+    }
+
     if (summaryByYear.length) {
       const modisMap = new Map((finalizedCountry.series.fire_count?.annual) || []);
       const viirsMap = new Map((finalizedCountry.series.viirs_count?.annual) || []);
       for (const row of summaryByYear) {
         if (row.modisTotal > 0 && !modisMap.has(row.year)) modisMap.set(row.year, row.modisTotal);
         if (row.viirsTotal > 0 && !viirsMap.has(row.year)) viirsMap.set(row.year, row.viirsTotal);
+        const fb = fallbackModisByYear.get(row.year);
         if (!finalizedCountry.years[row.year] && (row.modisTotal > 0 || row.viirsTotal > 0 || row.allTotal > 0)) {
           const fyRows = forestYearsByYear[row.year] || [];
           finalizedCountry.years[row.year] = {
-            summaryOnly: true,
+            summaryOnly: !fb,
+            hasSpatialGrid: Boolean(fb),
+            ...(fb ? { pointsSource: 'MODIS (GFAS locs)' } : {}),
             detections: row.modisTotal || row.viirsTotal || row.allTotal,
             modisTotal: row.modisTotal,
             viirsTotal: row.viirsTotal,
@@ -1031,21 +1149,29 @@ export function buildScopeIndex(dataRoot = path.resolve('data'), options = {}) {
             highFrpCount: row.modisHighFrp || 0,
             lowFrpCount: row.modisLowFrp || 0,
             sensor: row.viirsTotal > 0 ? (row.modisTotal > 0 ? 'MODIS+VIIRS' : 'VIIRS') : 'MODIS',
-            topStates: [],
-            topForests: fyRows.slice(0, 15).map(([name, m, v]) => ({
-              name,
-              count: m + v,
-              frpMw: 0,
-              inNationalForest: !name.startsWith('Other forest land'),
-            })),
+            topStates: fb ? fb.topStates : [],
+            topForests: fyRows.length
+              ? fyRows.slice(0, 15).map(([name, m, v]) => ({
+                  name,
+                  count: m + v,
+                  frpMw: 0,
+                  inNationalForest: !name.startsWith('Other forest land'),
+                }))
+              : (fb ? fb.topForests : []),
             topNationalForests: [],
           };
+        } else if (finalizedCountry.years[row.year] && fb) {
+          finalizedCountry.years[row.year].hasSpatialGrid = true;
+          finalizedCountry.years[row.year].summaryOnly = false;
+          finalizedCountry.years[row.year].pointsSource = 'MODIS (GFAS locs)';
+          if (!finalizedCountry.years[row.year].viirsTotal && row.viirsTotal) finalizedCountry.years[row.year].viirsTotal = row.viirsTotal;
+          if (!finalizedCountry.years[row.year].topStates?.length) finalizedCountry.years[row.year].topStates = fb.topStates;
         }
       }
       if (modisMap.size) {
         finalizedCountry.series.fire_count = {
           annual: Array.from(modisMap.entries()).sort((a, b) => a[0] - b[0]),
-          monthly: finalizedCountry.series.fire_count?.monthly || [],
+          monthly: Array.from(fireCountMonthlyMap.entries()).sort((a, b) => a[0].localeCompare(b[0])),
         };
       }
       if (viirsMap.size) {
@@ -1073,9 +1199,14 @@ export function buildScopeIndex(dataRoot = path.resolve('data'), options = {}) {
 function dataPipelinePlugin() {
   let cachedScopeIndexJson = null;
 
-  const getScopeIndexJson = () => {
+  const getScopeIndexJson = (preferDisk = false) => {
     if (!cachedScopeIndexJson) {
-      cachedScopeIndexJson = JSON.stringify(buildScopeIndex(path.resolve('data'), { writeGrids: true }));
+      const diskPath = path.resolve('data/scope-index.json');
+      if (preferDisk && fs.existsSync(diskPath)) {
+        cachedScopeIndexJson = fs.readFileSync(diskPath, 'utf8');
+      } else {
+        cachedScopeIndexJson = JSON.stringify(buildScopeIndex(path.resolve('data'), { writeGrids: true }));
+      }
     }
     return cachedScopeIndexJson;
   };
@@ -1086,16 +1217,19 @@ function dataPipelinePlugin() {
       server.middlewares.use((req, res, next) => {
         const cleanUrl = (req.url || '').split('?')[0];
         if (cleanUrl === '/data/manifest.json') {
-          const manifest = buildDataManifest(path.resolve('data'));
+          const manifestPath = path.resolve('data/manifest.json');
+          const out = fs.existsSync(manifestPath)
+            ? fs.readFileSync(manifestPath, 'utf8')
+            : JSON.stringify(buildDataManifest(path.resolve('data')));
           res.setHeader('Content-Type', 'application/json; charset=utf-8');
           res.setHeader('Cache-Control', 'no-store');
-          res.end(JSON.stringify(manifest));
+          res.end(out);
           return;
         }
         if (cleanUrl === '/data/scope-index.json') {
           res.setHeader('Content-Type', 'application/json; charset=utf-8');
           res.setHeader('Cache-Control', 'no-store');
-          res.end(getScopeIndexJson());
+          res.end(getScopeIndexJson(true));
           return;
         }
         next();
@@ -1105,7 +1239,8 @@ function dataPipelinePlugin() {
       const src = path.resolve('data');
       const dest = path.resolve('dist/data');
       if (fs.existsSync(src)) {
-        const scopeIndexJson = getScopeIndexJson();
+        cachedScopeIndexJson = null;
+        const scopeIndexJson = getScopeIndexJson(false);
         const manifestJson = JSON.stringify(buildDataManifest(src));
         fs.writeFileSync(path.join(src, 'manifest.json'), manifestJson);
         fs.writeFileSync(path.join(src, 'scope-index.json'), scopeIndexJson);
