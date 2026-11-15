@@ -1,34 +1,29 @@
 // js/data-config.js
-// Purpose: Flexible data-source configuration so you can swap in large CSV files (FIRMS, MERRA-2/AOD,
-//          water, or custom multi-year CSVs) without touching any map or chart code.
-//
-// Quick switch guide:
-//   1. Drop your CSV file(s) under ./data/ (for example ./data/canada/fires.csv or ./data/canada/fires/2023.csv).
-//   2. Set `mode: 'csv'` (or `'auto'` to try CSV first and fall back to GeoJSON/JSON automatically).
-//   3. Point `scopes['canada'].firesCsv` (or use `{scope}` / `{year}` patterns below) to your CSV path.
-//   4. Adjust `columns` only if your CSV headers differ from the standard aliases listed below.
+// Purpose: Flexible CSV configuration. You can copy-paste an entire yearly CSV folder
+//          (such as `USA_forest_fires_final` or `csv_by_year` containing `USA_VIIRS_2021.csv` /
+//          `USA_MODIS_2021.csv`) straight into `./data/` or `./data/<country>/`, and the app
+//          discovers and aggregates it automatically without changing code.
 
 export const DATA_CONFIG = {
-  // 'geojson' = read existing .geojson/.json files
-  // 'csv'     = read CSV paths below
-  // 'auto'    = try configured CSV first (if specified), otherwise fall back cleanly to .geojson/.json
-  mode: 'auto',
+  // 'csv'     = read discovered / configured CSV files (no mock JSON requests)
+  // 'geojson' = read legacy .geojson/.json files
+  // 'auto'    = try CSV first, otherwise fall back to .geojson/.json
+  mode: 'csv',
 
-  // Optional global URL patterns when using per-scope or per-year CSV files.
-  // Leave null to only use explicit per-scope entries or default GeoJSON files.
-  // Example: './data/{scope}/fires.csv' or './data/{scope}/fires/{year}.csv'
+  // When a csv_by_year folder includes both VIIRS and MODIS files for the same year:
+  //   'viirs-first' = use VIIRS if present for that year, else MODIS (avoids double-counting)
+  //   'modis-first' = use MODIS if present for that year, else VIIRS
+  //   'merge'       = combine all files found for that year
+  sensorPreference: 'viirs-first',
+
+  // Direct single-file fallback patterns per scope ({scope} = 'canada', 'usa', 'russia', etc.)
   patterns: {
-    firesCsv: null,
-    airCsv: null,
-    seriesCsv: null,
+    firesCsv: './data/{scope}/fires.csv',
+    airCsv: './data/{scope}/air.csv',
+    seriesCsv: './data/{scope}/series.csv',
   },
 
-  // Per-scope overrides for quick swapping (key = 'canada', 'canada/fraser', 'usa', 'usa/yukon', 'russia', 'russia/amur')
-  // Example:
-  //   canada: {
-  //     firesCsv: './data/canada/firms_all.csv',
-  //     airCsv: './data/canada/merra2_aod.csv',
-  //   }
+  // Optional per-scope overrides (e.g. scopes['usa'] = { firesCsv: './data/usa/custom.csv' })
   scopes: {},
 
   // Flexible column-name aliases (case-insensitive, first matching header wins)
@@ -46,8 +41,7 @@ export const DATA_CONFIG = {
     waterBody: ['water_body', 'waterbody', 'water_body_id', 'wb'],
   },
 
-  // Grid cell size (degrees) used to aggregate huge point-level CSVs (like raw NASA FIRMS detections)
-  // so the map stays fast at 60 fps. Set to 0 to keep raw points un-aggregated.
+  // Grid cell size (degrees) used to aggregate large point-level CSVs (like NASA FIRMS 20–60 MB files)
   gridDeg: {
     countryFires: 0.5,
     basinFires: 0.1,
@@ -55,6 +49,6 @@ export const DATA_CONFIG = {
     basinAir: 0.5,
   },
 
-  // Rows parsed per event-loop slice so massive multi-megabyte CSVs never freeze the UI.
-  chunkRows: 12000,
+  // Rows parsed per event-loop yield so large CSVs never freeze the UI
+  chunkRows: 15000,
 };

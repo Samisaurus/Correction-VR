@@ -233,10 +233,25 @@ export async function mount(el, ctx) {
   });
   map.on('error', (e) => console.warn('map:', e && e.error ? e.error.message : e));
   map.addControl(new window.maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
-  map.addControl(new window.maplibregl.AttributionControl({
-    compact: true,
-    customAttribution: 'Fires: NASA FIRMS · Air: MERRA-2 · Water: MODIS-Aqua · © OpenFreeMap © OpenMapTiles © OpenStreetMap contributors',
-  }));
+  map.addControl(new window.maplibregl.AttributionControl({ compact: true }), 'bottom-right');
+  let userOpenedAttrib = false;
+  function syncAttribState() {
+    const attr = el.querySelector('.maplibregl-ctrl-attrib');
+    if (!attr || userOpenedAttrib) return;
+    attr.classList.add('maplibregl-compact');
+    attr.classList.remove('maplibregl-compact-show');
+    attr.removeAttribute('open');
+  }
+  const attrBtn = el.querySelector('.maplibregl-ctrl-attrib-button');
+  if (attrBtn) {
+    attrBtn.addEventListener('click', () => {
+      const attr = attrBtn.closest('.maplibregl-ctrl-attrib');
+      requestAnimationFrame(() => {
+        userOpenedAttrib = !!(attr && (attr.hasAttribute('open') || attr.classList.contains('maplibregl-compact-show')));
+      });
+    });
+  }
+  syncAttribState();
   ctx.map = map;
   const layers = [];
   let ready = false;
@@ -422,6 +437,7 @@ export async function mount(el, ctx) {
     await loadAllCountries();
     ready = true;
     el.dataset.mapReady = 'true';
+    syncAttribState();
     refresh(store.get(), 'first');
   });
 
@@ -431,6 +447,12 @@ export async function mount(el, ctx) {
   });
   if (typeof ResizeObserver !== 'undefined') {
     let t = null;
-    new ResizeObserver(() => { clearTimeout(t); t = setTimeout(() => map.resize(), 100); }).observe(el);
+    new ResizeObserver(() => {
+      clearTimeout(t);
+      t = setTimeout(() => {
+        map.resize();
+        syncAttribState();
+      }, 100);
+    }).observe(el);
   }
 }

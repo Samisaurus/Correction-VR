@@ -5,7 +5,7 @@
 const STYLE = `
 .leg-box {
   background: rgba(255, 255, 255, 0.96); border: 1px solid var(--c-edge); border-radius: 10px;
-  font-size: 11px; line-height: 1.3; min-width: 186px; max-width: 256px; backdrop-filter: blur(4px);
+  font-size: 11px; line-height: 1.3; min-width: 186px; max-width: 248px; backdrop-filter: blur(4px);
 }
 .leg-title {
   display: flex; justify-content: space-between; align-items: center; gap: 8px;
@@ -27,6 +27,7 @@ const STYLE = `
 .leg-cchip { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; color: var(--c-ink); }
 .leg-swatch { width: 9px; height: 9px; border-radius: 3px; border: 1px solid rgba(0,0,0,0.2); display: inline-block; }
 .leg-muted { color: var(--c-muted); }
+.leg-nw { white-space: nowrap; }
 `;
 const NS = 'http://www.w3.org/2000/svg';
 
@@ -95,8 +96,8 @@ export async function mount(el, ctx) {
     const k = basin ? 0.75 : 0.4;
     const r = (n) => (1 + k * Math.sqrt(n)).toFixed(1);
     body.appendChild(row(
-      svg(64, 26, `<circle cx="8" cy="13" r="${r(10)}" fill="#FACC15" fill-opacity="0.55"/><circle cx="26" cy="13" r="${r(100)}" fill="#EA580C" fill-opacity="0.68"/><circle cx="52" cy="13" r="${r(1000)}" fill="#991B1B" fill-opacity="0.78"/>`),
-      `<strong>Fire density:</strong> yellow → red / 5 km²<br><span class="leg-muted">${basin ? '0.1°' : '0.5°'} grid, size = detections</span>`,
+      svg(56, 26, `<circle cx="7" cy="13" r="${r(10)}" fill="#FACC15" fill-opacity="0.55"/><circle cx="23" cy="13" r="${r(100)}" fill="#EA580C" fill-opacity="0.68"/><circle cx="46" cy="13" r="${r(1000)}" fill="#991B1B" fill-opacity="0.78"/>`),
+      `<strong>Fire density:</strong> yellow–red / <span class="leg-nw">5 km²</span><br><span class="leg-muted">${basin ? '0.1°' : '0.5°'} grid, size = detections</span>`,
     ));
     body.appendChild(row(
       svg(46, 12,

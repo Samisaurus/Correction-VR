@@ -1,12 +1,12 @@
 // js/data.js
-// Purpose: cached loader for ./data/ (GeoJSON/JSON + flexible large-CSV adapter & grid aggregator)
-//          plus sync series helpers. Never throws: a missing file returns null.
+// Purpose: cached loader for ./data/ (GeoJSON/JSON + streaming large-CSV adapter & grid aggregator)
+//          with automatic discovery of copy-pasted csv_by_year folders and basin bbox filtering.
 
 import { DATA_CONFIG } from './data-config.js';
 
 const BASE = './data/';
-const cache = new Map();       // url or key -> Promise
-const csvIndexCache = new Map(); // csvUrl + kind -> Promise<Map<year, FeatureCollection>>
+const cache = new Map();        // url or key -> Promise
+const csvIndexCache = new Map(); // cacheKey -> Promise<Map<year, FeatureCollection>>
 const csvOverrides = new Map();  // `${scopePath}:${kind}` -> string (url) | File | Blob
 let regionsSync = null;
 
@@ -29,22 +29,12 @@ async function fetchJson(url) {
   return cache.get(url);
 }
 
-async function fetchText(url) {
-  if (!cache.has(url)) {
-    cache.set(url, (async () => {
-      try {
-        const res = await fetch(url);
-        if (!res.ok) return null;
-        return await res.text();
-      } catch {
-        return null;
-      }
-    })());
-  }
-  return cache.get(url);
+async function getManifest() {
+  if (typeof fetch !== 'function') return null;
+  return fetchJson(`${BASE}manifest.json`);
 }
 
-// ---- Flexible, non-blocking CSV parser & spatial aggregator for large CSV files -----------------
+// ---- Streaming, non-blocking CSV parser & spatial aggregator for 20–60+ MB CSVs ----------------
 
 function splitCsvRow(line) {
   const out = [];
@@ -70,13 +60,37 @@ function splitCsvRow(line) {
   return out;
 }
 
-function findCol(headers, aliases) {
-  const lower = headers.map((h) => h.toLowerCase().trim());
-  for (const alias of aliases) {
-    const idx = lower.indexOf(alias.toLowerCase());
-    if (idx >= 0) return idx;
+// Fast zero-allocation field extractor for unquoted CSV lines (standard NASA FIRMS rows)
+function fastSplit(line, out) {
+  out.length = 0;
+  let start = 0;
+  const len = line.length;
+  for (let i = 0; i < len; i += 1) {
+    if (line.charCodeAt(i) === 44) {
+      out.push(line.slice(start, i).trim());
+      start = i + 1;
+    }
   }
-  return -1;
+  out.push(line.slice(start).trim());
+  return out;
+}
+
+function resolveColumns(headerLine) {
+  const headers = splitCsvRow(headerLine);
+  const lower = headers.map((h) => h.toLowerCase().trim());
+  const cols = {};
+  for (const [k, aliases] of Object.entries(DATA_CONFIG.columns)) {
+    let idx = -1;
+    for (const alias of aliases) {
+      const found = lower.indexOf(alias.toLowerCase());
+      if (found >= 0) {
+        idx = found;
+        break;
+      }
+    }
+    cols[k] = idx;
+  }
+  return { cols, headers };
 }
 
 function toNum(raw) {
@@ -100,35 +114,110 @@ function parseYear(rawYear, rawDate) {
 }
 
 /**
- * Parse a large CSV string in chunks (non-blocking) and invoke onRow(cells, indices) for each row.
+ * Parse a CSV string in non-blocking chunks and invoke onRow(cells, cols, headers).
  */
 export async function parseCsv(text, onRow, chunkRows = DATA_CONFIG.chunkRows) {
   if (!text) return;
-  const lines = text.split(/\r?\n/);
-  let headerIdx = 0;
-  while (headerIdx < lines.length && !lines[headerIdx].trim()) headerIdx += 1;
-  if (headerIdx >= lines.length) return;
+  let pos = 0;
+  const len = text.length;
+  let cols = null;
+  let headers = null;
+  let count = 0;
+  const rowBuf = [];
 
-  const headers = splitCsvRow(lines[headerIdx]);
-  const cols = {};
-  for (const [k, aliases] of Object.entries(DATA_CONFIG.columns)) {
-    cols[k] = findCol(headers, aliases);
-  }
+  while (pos < len) {
+    let nl = text.indexOf('\n', pos);
+    if (nl < 0) nl = len;
+    const rawLine = text.slice(pos, nl);
+    pos = nl + 1;
 
-  for (let i = headerIdx + 1; i < lines.length; i += 1) {
-    const line = lines[i];
-    if (line && line.trim()) {
-      onRow(splitCsvRow(line), cols, headers);
+    const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
+    if (!line || !line.trim()) continue;
+
+    if (!cols) {
+      ({ cols, headers } = resolveColumns(line));
+      continue;
     }
-    if (chunkRows > 0 && (i - headerIdx) % chunkRows === 0) {
+
+    const cells = line.indexOf('"') >= 0 ? splitCsvRow(line) : fastSplit(line, rowBuf);
+    onRow(cells, cols, headers);
+    count += 1;
+    if (chunkRows > 0 && count % chunkRows === 0) {
       await new Promise((r) => setTimeout(r, 0));
     }
   }
 }
 
 /**
- * Register a runtime CSV override (URL string or browser File/Blob) for any scope + kind ('fires'|'air').
- * Clears cached layers for that key so the next refresh loads the new CSV immediately.
+ * Stream a CSV source (URL string or File/Blob) line-by-line via ReadableStream so multi-decade
+ * 20–60+ MB FIRMS files never allocate massive intermediate string arrays.
+ */
+async function streamCsv(source, onRow, chunkRows = DATA_CONFIG.chunkRows) {
+  if (!source) return false;
+  if (typeof source !== 'string') {
+    if (typeof source.text === 'function') {
+      await parseCsv(await source.text(), onRow, chunkRows);
+      return true;
+    }
+    return false;
+  }
+
+  let res;
+  try {
+    res = await fetch(source);
+  } catch {
+    return false;
+  }
+  if (!res.ok) return false;
+
+  if (!res.body || typeof res.body.getReader !== 'function') {
+    await parseCsv(await res.text(), onRow, chunkRows);
+    return true;
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let carry = '';
+  let cols = null;
+  let headers = null;
+  let rowCount = 0;
+  const rowBuf = [];
+
+  const handleLine = (raw) => {
+    const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
+    if (!line || !line.trim()) return;
+    if (!cols) {
+      ({ cols, headers } = resolveColumns(line));
+      return;
+    }
+    const cells = line.indexOf('"') >= 0 ? splitCsvRow(line) : fastSplit(line, rowBuf);
+    onRow(cells, cols, headers);
+    rowCount += 1;
+  };
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    const chunk = carry + decoder.decode(value, { stream: true });
+    let start = 0;
+    while (true) {
+      const nl = chunk.indexOf('\n', start);
+      if (nl < 0) break;
+      handleLine(chunk.slice(start, nl));
+      start = nl + 1;
+      if (chunkRows > 0 && rowCount > 0 && rowCount % chunkRows === 0) {
+        await new Promise((r) => setTimeout(r, 0));
+      }
+    }
+    carry = chunk.slice(start);
+  }
+  carry += decoder.decode();
+  if (carry.trim()) handleLine(carry);
+  return true;
+}
+
+/**
+ * Register a runtime CSV override (URL string or browser File/Blob) for any scope + kind ('fires'|'air'|'series').
  */
 export function setCsvOverride(scope, kind, source) {
   const key = `${scope}:${kind}`;
@@ -139,53 +228,97 @@ export function setCsvOverride(scope, kind, source) {
   }
 }
 
-async function readCsvSource(source) {
-  if (!source) return null;
-  if (typeof source === 'string') return fetchText(source);
-  if (typeof source.text === 'function') return source.text();
-  return null;
+function selectSensorEntries(entries, year) {
+  const matches = entries.filter((e) => e.year === null || e.year === year);
+  if (!matches.length) return [];
+  const pref = DATA_CONFIG.sensorPreference || 'viirs-first';
+  if (pref === 'merge') return matches.map((e) => e.url);
+  const primary = pref === 'modis-first' ? 'modis' : 'viirs';
+  const secondary = primary === 'viirs' ? 'modis' : 'viirs';
+  const pickedPrimary = matches.filter((e) => e.sensor === primary);
+  if (pickedPrimary.length) return pickedPrimary.map((e) => e.url);
+  const pickedSecondary = matches.filter((e) => e.sensor === secondary);
+  if (pickedSecondary.length) return pickedSecondary.map((e) => e.url);
+  return matches.map((e) => e.url);
 }
 
-function resolveCsvSource(scope, kind, year) {
+async function resolveSourcesForYear(scope, kind, year) {
   const override = csvOverrides.get(`${scope}:${kind}`);
-  if (override) return override;
+  if (override) return { sources: [override], clipBbox: null };
+
   const scopeCfg = DATA_CONFIG.scopes && DATA_CONFIG.scopes[scope];
   const prop = kind === 'fires' ? 'firesCsv' : kind === 'air' ? 'airCsv' : 'seriesCsv';
   if (scopeCfg && scopeCfg[prop]) {
-    return scopeCfg[prop].replace('{scope}', scope).replace('{year}', String(year));
+    return { sources: [scopeCfg[prop].replace('{scope}', scope).replace('{year}', String(year))], clipBbox: null };
   }
+
+  const manifest = await getManifest();
+  if (manifest && manifest.scopes) {
+    const entry = manifest.scopes[scope];
+    if (kind === 'fires') {
+      if (entry && Array.isArray(entry.fires) && entry.fires.length) {
+        const picked = selectSensorEntries(entry.fires, year);
+        if (picked.length) return { sources: picked, clipBbox: null };
+      }
+      // If a case-study basin has no dedicated fire CSVs, filter the parent country's CSV by basin bbox
+      if (scope.includes('/')) {
+        const [countryId, basinId] = scope.split('/');
+        const parentEntry = manifest.scopes[countryId];
+        if (parentEntry && Array.isArray(parentEntry.fires) && parentEntry.fires.length) {
+          const picked = selectSensorEntries(parentEntry.fires, year);
+          if (picked.length) {
+            const c = countryEntry(countryId);
+            const bbox = c && c.basin && c.basin.id === basinId && Array.isArray(c.basin.bbox) ? c.basin.bbox : null;
+            return { sources: picked, clipBbox: bbox };
+          }
+        }
+      }
+      return { sources: [], clipBbox: null };
+    }
+    const direct = entry && entry[kind];
+    return { sources: direct ? [direct] : [], clipBbox: null };
+  }
+
+  // Static fallback when no manifest is available
   const pat = DATA_CONFIG.patterns && DATA_CONFIG.patterns[prop];
-  if (pat) {
-    return pat.replace('{scope}', scope).replace('{year}', String(year));
-  }
-  return null;
+  return {
+    sources: pat ? [pat.replace('{scope}', scope).replace('{year}', String(year))] : [],
+    clipBbox: null,
+  };
 }
 
-async function loadSeriesCsv(source, scope) {
-  const text = await readCsvSource(source);
-  if (!text) return null;
+async function loadSeriesCsv(sources, scope) {
+  const list = Array.isArray(sources) ? sources : [sources];
+  if (!list.length) return null;
   const variables = {};
   const waterBodies = {};
   const ensureVar = (bucket, id) => {
     if (!bucket[id]) bucket[id] = { annualMap: new Map(), monthlyMap: new Map() };
     return bucket[id];
   };
-  await parseCsv(text, (cells, cols) => {
-    const varId = cols.variable >= 0 ? String(cells[cols.variable] || '').trim() : '';
-    const val = cols.value >= 0 ? toNum(cells[cols.value]) : null;
-    if (!varId || val === null) return;
-    const wb = cols.waterBody >= 0 ? String(cells[cols.waterBody] || '').trim() : '';
-    const bucket = wb ? (waterBodies[wb] || (waterBodies[wb] = {})) : variables;
-    const target = ensureVar(bucket, varId);
-    const dateRaw = cols.date >= 0 ? String(cells[cols.date] || '').trim() : '';
-    const ym = dateRaw.match(/^(\d{4})-(\d{2})/);
-    if (ym) {
-      target.monthlyMap.set(`${ym[1]}-${ym[2]}`, val);
-    } else {
-      const yr = parseYear(cols.year >= 0 ? cells[cols.year] : undefined, dateRaw);
-      if (yr !== null) target.annualMap.set(yr, val);
-    }
-  });
+
+  let loadedAny = false;
+  for (const src of list) {
+    const ok = await streamCsv(src, (cells, cols) => {
+      const varId = cols.variable >= 0 ? String(cells[cols.variable] || '').trim() : '';
+      const val = cols.value >= 0 ? toNum(cells[cols.value]) : null;
+      if (!varId || val === null) return;
+      const wb = cols.waterBody >= 0 ? String(cells[cols.waterBody] || '').trim() : '';
+      const bucket = wb ? (waterBodies[wb] || (waterBodies[wb] = {})) : variables;
+      const target = ensureVar(bucket, varId);
+      const dateRaw = cols.date >= 0 ? String(cells[cols.date] || '').trim() : '';
+      const ym = dateRaw.match(/^(\d{4})-(\d{2})/);
+      if (ym) {
+        target.monthlyMap.set(`${ym[1]}-${ym[2]}`, val);
+      } else {
+        const yr = parseYear(cols.year >= 0 ? cells[cols.year] : undefined, dateRaw);
+        if (yr !== null) target.annualMap.set(yr, val);
+      }
+    });
+    if (ok) loadedAny = true;
+  }
+
+  if (!loadedAny) return null;
   const finalize = (bucket) => {
     const out = {};
     for (const [id, entry] of Object.entries(bucket)) {
@@ -197,71 +330,78 @@ async function loadSeriesCsv(source, scope) {
   };
   const wbOut = {};
   for (const [wb, b] of Object.entries(waterBodies)) wbOut[wb] = finalize(b);
-  return { scope, variables: finalize(variables), waterBodies: wbOut };
+  const finalized = finalize(variables);
+  if (!Object.keys(finalized).length && !Object.keys(wbOut).length) return null;
+  return { scope, variables: finalized, waterBodies: wbOut };
 }
 
-async function loadSpatialCsvByYear(source, kind, scope, isBasin, defaultYear) {
-  const cacheKey = `${scope}:${kind}:${typeof source === 'string' ? source : 'blob'}`;
+async function loadSpatialCsvByYear(sources, kind, scope, isBasin, defaultYear, clipBbox) {
+  const sourceKey = sources.map((s) => (typeof s === 'string' ? s : 'blob')).join('|');
+  const bboxKey = clipBbox ? clipBbox.join(',') : '';
+  const cacheKey = `${scope}:${kind}:${sourceKey}:${bboxKey}`;
   if (csvIndexCache.has(cacheKey)) return csvIndexCache.get(cacheKey);
 
   const promise = (async () => {
-    const text = await readCsvSource(source);
-    if (!text) return null;
-
     const gridDeg = kind === 'fires'
       ? (isBasin ? DATA_CONFIG.gridDeg.basinFires : DATA_CONFIG.gridDeg.countryFires)
       : (isBasin ? DATA_CONFIG.gridDeg.basinAir : DATA_CONFIG.gridDeg.countryAir);
 
-    // year -> Map<cellKey, accumulator>
     const byYear = new Map();
+    const minLon = clipBbox ? clipBbox[0] : -Infinity;
+    const minLat = clipBbox ? clipBbox[1] : -Infinity;
+    const maxLon = clipBbox ? clipBbox[2] : Infinity;
+    const maxLat = clipBbox ? clipBbox[3] : Infinity;
 
-    await parseCsv(text, (cells, cols) => {
-      const lat = cols.lat >= 0 ? toNum(cells[cols.lat]) : null;
-      const lon = cols.lon >= 0 ? toNum(cells[cols.lon]) : null;
-      if (lat === null || lon === null) return;
+    for (const src of sources) {
+      await streamCsv(src, (cells, cols) => {
+        const lat = cols.lat >= 0 ? toNum(cells[cols.lat]) : null;
+        const lon = cols.lon >= 0 ? toNum(cells[cols.lon]) : null;
+        if (lat === null || lon === null) return;
+        if (lat < minLat || lat > maxLat || lon < minLon || lon > maxLon) return;
 
-      const yr = parseYear(
-        cols.year >= 0 ? cells[cols.year] : undefined,
-        cols.date >= 0 ? cells[cols.date] : undefined,
-      ) ?? defaultYear;
-      if (!Number.isInteger(yr)) return;
+        const yr = parseYear(
+          cols.year >= 0 ? cells[cols.year] : undefined,
+          cols.date >= 0 ? cells[cols.date] : undefined,
+        ) ?? defaultYear;
+        if (!Number.isInteger(yr)) return;
 
-      let yearMap = byYear.get(yr);
-      if (!yearMap) {
-        yearMap = new Map();
-        byYear.set(yr, yearMap);
-      }
-
-      const snapLat = gridDeg > 0 ? Math.floor(lat / gridDeg) * gridDeg + gridDeg / 2 : lat;
-      const snapLon = gridDeg > 0 ? Math.floor(lon / gridDeg) * gridDeg + gridDeg / 2 : lon;
-      const key = `${snapLon.toFixed(4)},${snapLat.toFixed(4)}`;
-
-      if (kind === 'fires') {
-        const count = cols.count >= 0 ? (toNum(cells[cols.count]) ?? 1) : 1;
-        const frp = cols.frp >= 0 ? (toNum(cells[cols.frp]) ?? 0) : 0;
-        const dateStr = cols.date >= 0 ? cells[cols.date] : `${yr}-07-01`;
-        const cur = yearMap.get(key);
-        if (!cur) {
-          yearMap.set(key, { lon: snapLon, lat: snapLat, count, frp_sum: frp, first: dateStr, last: dateStr });
-        } else {
-          cur.count += count;
-          cur.frp_sum += frp;
-          if (dateStr && dateStr < cur.first) cur.first = dateStr;
-          if (dateStr && dateStr > cur.last) cur.last = dateStr;
+        let yearMap = byYear.get(yr);
+        if (!yearMap) {
+          yearMap = new Map();
+          byYear.set(yr, yearMap);
         }
-      } else {
-        const aod = cols.aod >= 0 ? toNum(cells[cols.aod]) : null;
-        const pm25 = cols.pm25 >= 0 ? toNum(cells[cols.pm25]) : null;
-        if (aod === null && pm25 === null) return;
-        const cur = yearMap.get(key);
-        if (!cur) {
-          yearMap.set(key, { lon: snapLon, lat: snapLat, aodSum: aod ?? 0, aodN: aod !== null ? 1 : 0, pmSum: pm25 ?? 0, pmN: pm25 !== null ? 1 : 0 });
+
+        const snapLat = gridDeg > 0 ? Math.floor(lat / gridDeg) * gridDeg + gridDeg / 2 : lat;
+        const snapLon = gridDeg > 0 ? Math.floor(lon / gridDeg) * gridDeg + gridDeg / 2 : lon;
+        const key = `${snapLon.toFixed(4)},${snapLat.toFixed(4)}`;
+
+        if (kind === 'fires') {
+          const count = cols.count >= 0 ? (toNum(cells[cols.count]) ?? 1) : 1;
+          const frp = cols.frp >= 0 ? (toNum(cells[cols.frp]) ?? 0) : 0;
+          const dateStr = cols.date >= 0 ? (cells[cols.date] || `${yr}-07-01`) : `${yr}-07-01`;
+          const cur = yearMap.get(key);
+          if (!cur) {
+            yearMap.set(key, { lon: snapLon, lat: snapLat, count, frp_sum: frp, first: dateStr, last: dateStr });
+          } else {
+            cur.count += count;
+            cur.frp_sum += frp;
+            if (dateStr < cur.first) cur.first = dateStr;
+            if (dateStr > cur.last) cur.last = dateStr;
+          }
         } else {
-          if (aod !== null) { cur.aodSum += aod; cur.aodN += 1; }
-          if (pm25 !== null) { cur.pmSum += pm25; cur.pmN += 1; }
+          const aod = cols.aod >= 0 ? toNum(cells[cols.aod]) : null;
+          const pm25 = cols.pm25 >= 0 ? toNum(cells[cols.pm25]) : null;
+          if (aod === null && pm25 === null) return;
+          const cur = yearMap.get(key);
+          if (!cur) {
+            yearMap.set(key, { lon: snapLon, lat: snapLat, aodSum: aod ?? 0, aodN: aod !== null ? 1 : 0, pmSum: pm25 ?? 0, pmN: pm25 !== null ? 1 : 0 });
+          } else {
+            if (aod !== null) { cur.aodSum += aod; cur.aodN += 1; }
+            if (pm25 !== null) { cur.pmSum += pm25; cur.pmN += 1; }
+          }
         }
-      }
-    });
+      });
+    }
 
     const collections = new Map();
     for (const [yr, yearMap] of byYear.entries()) {
@@ -320,7 +460,7 @@ export function scopePath(state) {
 }
 
 export function buildMeta(country, view, regions) {
-  const common = { years: regions.years, mock: regions.mock === true };
+  const common = { years: regions.years };
   if (view === 'basin' && country.basin) {
     const b = country.basin;
     return {
@@ -348,13 +488,16 @@ export async function getScope(state) {
   const key = `scope:${path}`;
   if (!cache.has(key)) {
     cache.set(key, (async () => {
-      const seriesCsv = DATA_CONFIG.mode !== 'geojson' ? resolveCsvSource(path, 'series', '') : null;
+      const csvOnly = DATA_CONFIG.mode === 'csv';
+      const resolvedSeries = DATA_CONFIG.mode !== 'geojson'
+        ? await resolveSourcesForYear(path, 'series', '')
+        : { sources: [] };
       const [geo, rivers, seriesJson, stats, seriesFromCsv] = await Promise.all([
         fetchJson(`${BASE}${path}/geo.geojson`),
         fetchJson(`${BASE}${path}/rivers.geojson`),
-        fetchJson(`${BASE}${path}/series.json`),
-        fetchJson(`${BASE}${path}/stats.json`),
-        seriesCsv ? loadSeriesCsv(seriesCsv, path) : Promise.resolve(null),
+        csvOnly ? Promise.resolve(null) : fetchJson(`${BASE}${path}/series.json`),
+        csvOnly ? Promise.resolve(null) : fetchJson(`${BASE}${path}/stats.json`),
+        resolvedSeries.sources.length ? loadSeriesCsv(resolvedSeries.sources, path) : Promise.resolve(null),
       ]);
       return { meta: buildMeta(country, view, regions), geo, rivers, series: seriesFromCsv || seriesJson, stats };
     })());
@@ -402,12 +545,12 @@ async function yearLayer(state, folder, year) {
   const isBasin = scope.includes('/');
 
   if (DATA_CONFIG.mode !== 'geojson') {
-    const csvSource = resolveCsvSource(scope, folder, y);
-    if (csvSource) {
-      const indexed = await loadSpatialCsvByYear(csvSource, folder, scope, isBasin, y);
+    const { sources, clipBbox } = await resolveSourcesForYear(scope, folder, y);
+    if (sources.length) {
+      const indexed = await loadSpatialCsvByYear(sources, folder, scope, isBasin, y, clipBbox);
       if (indexed && indexed.has(y)) return indexed.get(y);
-      if (DATA_CONFIG.mode === 'csv') return { type: 'FeatureCollection', scope, year: y, features: [] };
     }
+    if (DATA_CONFIG.mode === 'csv') return { type: 'FeatureCollection', scope, year: y, features: [] };
   }
   return fetchJson(`${BASE}${scope}/${folder}/${y}.geojson`);
 }

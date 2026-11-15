@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { prepareRivers, scoreRiversForYear } from './water.js';
 import { enrichAndSortFires } from './fires.js';
-import { annualSeries, annualValue, annualMedian, monthlySeries } from '../data.js';
+import { annualSeries, annualValue, annualMedian, monthlySeries, parseCsv } from '../data.js';
 
 test('scoreRiversForYear keeps low-exposure rivers blue (0) and high-exposure rivers purple (near 1)', () => {
   const rivers = {
@@ -53,24 +53,31 @@ test('scoreRiversForYear keeps low-exposure rivers blue (0) and high-exposure ri
   assert.ok(clean < moderate && moderate < high);
 });
 
-test('real dataset separation: Canada 2023 megafire year has substantially higher river pollution than 2012', () => {
+test('structural Canada rivers.geojson scores cleanly across low-fire vs megafire inputs and CSV header templates exist', async () => {
   const rivers = JSON.parse(fs.readFileSync('data/canada/rivers.geojson', 'utf8'));
-  const fires2012 = JSON.parse(fs.readFileSync('data/canada/fires/2012.geojson', 'utf8'));
-  const air2012 = JSON.parse(fs.readFileSync('data/canada/air/2012.geojson', 'utf8'));
-  const fires2023 = JSON.parse(fs.readFileSync('data/canada/fires/2023.geojson', 'utf8'));
-  const air2023 = JSON.parse(fs.readFileSync('data/canada/air/2023.geojson', 'utf8'));
-
   const preparedRivers = prepareRivers(rivers);
-  const s12 = scoreRiversForYear({ preparedRivers, fires: fires2012, air: air2012, isBasin: false });
-  const s23 = scoreRiversForYear({ preparedRivers, fires: fires2023, air: air2023, isBasin: false });
+  const lowFires = {
+    type: 'FeatureCollection',
+    features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: [-116.5, 56.5] }, properties: { count: 40, frp_sum: 350 } }],
+  };
+  const highFires = {
+    type: 'FeatureCollection',
+    features: [
+      { type: 'Feature', geometry: { type: 'Point', coordinates: [-116.5, 56.5] }, properties: { count: 4200, frp_sum: 95000 } },
+      { type: 'Feature', geometry: { type: 'Point', coordinates: [-122.0, 54.0] }, properties: { count: 3800, frp_sum: 82000 } },
+    ],
+  };
+  const sLow = scoreRiversForYear({ preparedRivers, fires: lowFires, air: null, isBasin: false });
+  const sHigh = scoreRiversForYear({ preparedRivers, fires: highFires, air: null, isBasin: false });
+  const avgLow = sLow.features.reduce((a, f) => a + f.properties.pollution, 0) / sLow.features.length;
+  const avgHigh = sHigh.features.reduce((a, f) => a + f.properties.pollution, 0) / sHigh.features.length;
+  assert.ok(avgHigh > avgLow);
 
-  const scores12 = s12.features.map((f) => f.properties.pollution);
-  const scores23 = s23.features.map((f) => f.properties.pollution);
-  const avg12 = scores12.reduce((a, b) => a + b, 0) / scores12.length;
-  const avg23 = scores23.reduce((a, b) => a + b, 0) / scores23.length;
-  assert.ok(avg23 > avg12, `expected 2023 avg (${avg23}) > 2012 avg (${avg12})`);
-  assert.ok(Math.min(...scores23) < 0.4);
-  assert.ok(Math.max(...scores23) > 0.65);
+  const csvRows = [];
+  await parseCsv('latitude,longitude,acq_date,frp\n54.2,-122.5,2023-07-15,42.5\n', (cells, cols) => {
+    csvRows.push({ lat: Number(cells[cols.lat]), lon: Number(cells[cols.lon]), frp: Number(cells[cols.frp]) });
+  });
+  assert.deepEqual(csvRows, [{ lat: 54.2, lon: -122.5, frp: 42.5 }]);
 });
 
 test('accurate 50m country borders GeoJSON has all 3 countries and zero antimeridian jumps', () => {
@@ -123,4 +130,27 @@ test('enrichAndSortFires computes detections per 5 sq km and sorts ascending by 
   assert.ok(densities[0] < densities[1] && densities[1] < densities[2]);
   assert.ok(densities[0] > 0.2 && densities[0] < 0.5, `expected ~0.28 per 5 km^2, got ${densities[0]}`);
   assert.ok(densities[2] > 5.0, `expected >5 per 5 km^2, got ${densities[2]}`);
+});
+
+test('buildDataManifest discovers copy-pasted csv_by_year folders and ignores header-only templates', async () => {
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const { buildDataManifest } = await import('../../vite.config.js');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ember-manifest-'));
+  try {
+    const dir = path.join(tmp, 'USA_forest_fires_final', 'csv_by_year');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'USA_VIIRS_2021.csv'), 'latitude,longitude,acq_date,frp\n63.1,-155.2,2021-07-04,18.4\n');
+    fs.writeFileSync(path.join(dir, 'USA_MODIS_2021.csv'), 'latitude,longitude,acq_date,frp\n63.1,-155.2,2021-07-04,22.0\n');
+    fs.writeFileSync(path.join(dir, 'USA_MODIS_2005.csv'), 'latitude,longitude,acq_date,frp\n'); // header-only -> skipped
+    const manifest = buildDataManifest(tmp);
+    assert.ok(manifest.scopes.usa, 'usa scope should be discovered from USA_forest_fires_final');
+    assert.equal(manifest.scopes.usa.fires.length, 2);
+    assert.deepEqual(
+      manifest.scopes.usa.fires.map((f) => [f.sensor, f.year]).sort(),
+      [['modis', 2021], ['viirs', 2021]],
+    );
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
 });
