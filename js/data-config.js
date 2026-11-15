@@ -33,12 +33,14 @@ export const DATA_CONFIG = {
     year: ['year', 'yr', 'acq_year'],
     date: ['date', 'acq_date', 'time', 'month', 'timestamp'],
     count: ['count', 'detections', 'n', 'fire_count'],
-    frp: ['frp_sum', 'frp', 'fire_frp', 'radiative_power', 'power'],
+    frp: ['frp_mw', 'frp_sum', 'frp', 'fire_frp', 'radiative_power', 'power'],
     aod: ['aod', 'totexttau', 'aod_550', 'aod550', 'value'],
     pm25: ['pm25', 'pm2_5', 'surface_pm25'],
     variable: ['variable', 'var', 'var_id', 'metric'],
     value: ['value', 'val', 'mean', 'v'],
     waterBody: ['water_body', 'waterbody', 'water_body_id', 'wb'],
+    state: ['state', 'province', 'region_name', 'admin1'],
+    forest: ['forest_name', 'forest', 'unit_name'],
   },
 
   // Grid cell size (degrees) used to aggregate large point-level CSVs (like NASA FIRMS 20–60 MB files)

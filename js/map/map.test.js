@@ -144,24 +144,38 @@ test('enrichAndSortFires computes detections per 5 sq km and sorts ascending by 
   assert.ok(densities[2] > 5.0, `expected >5 per 5 km^2, got ${densities[2]}`);
 });
 
-test('buildDataManifest discovers copy-pasted csv_by_year folders and ignores header-only templates', async () => {
+test('buildDataManifest discovers copy-pasted csv_by_year folders, classifies summary files, and excludes outage CSVs', async () => {
   const os = await import('node:os');
   const path = await import('node:path');
   const { buildDataManifest } = await import('../../vite.config.js');
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ember-manifest-'));
   try {
     const dir = path.join(tmp, 'USA_forest_fires_final', 'csv_by_year');
+    const summaryDir = path.join(tmp, 'USA_forest_fires_final', 'data');
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'USA_VIIRS_2021.csv'), 'latitude,longitude,acq_date,frp\n63.1,-155.2,2021-07-04,18.4\n');
-    fs.writeFileSync(path.join(dir, 'USA_MODIS_2021.csv'), 'latitude,longitude,acq_date,frp\n63.1,-155.2,2021-07-04,22.0\n');
-    fs.writeFileSync(path.join(dir, 'USA_MODIS_2005.csv'), 'latitude,longitude,acq_date,frp\n'); // header-only -> skipped
+    fs.mkdirSync(summaryDir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'USA_VIIRS_2021.csv'), 'latitude,longitude,acq_date,frp_mw\n63.1,-155.2,2021-07-04,18.4\n');
+    fs.writeFileSync(path.join(dir, 'USA_MODIS_2021.csv'), 'latitude,longitude,acq_date,frp_mw\n63.1,-155.2,2021-07-04,22.0\n');
+    fs.writeFileSync(path.join(dir, 'USA_MODIS_2005.csv'), 'latitude,longitude,acq_date,frp_mw\n'); // header-only -> skipped
+    fs.writeFileSync(path.join(summaryDir, 'us_summary_by_year.csv'), 'year,MODIS_total,VIIRS_total,all_total\n2021,48801,312866,361667\n');
+    fs.writeFileSync(path.join(summaryDir, 'us_summary_by_forest.csv'), 'forest_name,state,MODIS,VIIRS,total,max_frp_mw\nKlamath,California,10,20,30,500\n');
+    fs.writeFileSync(path.join(summaryDir, 'us_viirs_outage_days.csv'), 'date\n2022-07-27\n');
+
     const manifest = buildDataManifest(tmp);
     assert.ok(manifest.scopes.usa, 'usa scope should be discovered from USA_forest_fires_final');
-    assert.equal(manifest.scopes.usa.fires.length, 2);
+    assert.equal(manifest.scopes.usa.fires.length, 2, 'summary and outage CSVs must not enter fires[]');
+    assert.ok(manifest.scopes.usa.summaryByYear.endsWith('us_summary_by_year.csv'));
+    assert.ok(manifest.scopes.usa.summaryByForest.endsWith('us_summary_by_forest.csv'));
     assert.deepEqual(
       manifest.scopes.usa.fires.map((f) => [f.sensor, f.year]).sort(),
       [['modis', 2021], ['viirs', 2021]],
     );
+
+    const parsed = [];
+    await parseCsv('latitude,longitude,acq_date,frp_mw\n63.1,-155.2,2021-07-04,84.5\n', (cells, cols) => {
+      parsed.push(Number(cells[cols.frp]));
+    });
+    assert.deepEqual(parsed, [84.5]);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }

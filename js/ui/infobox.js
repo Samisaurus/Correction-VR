@@ -39,7 +39,9 @@ const STYLE = `
 .ibx-num { font-family: var(--f-mono); font-size: 15.5px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--c-ink); }
 .ibx-unit { font-size: 12px; font-weight: 500; color: var(--c-muted); margin-left: 4px; }
 .ibx-delta { display: block; font-size: 11.5px; color: var(--c-muted); margin-top: 2px; }
-.ibx-delta strong { font-weight: 600; color: var(--c-ink); }
+.ibx-delta strong { font-weight: 700; color: var(--c-ink); }
+.ibx-delta strong.is-surge { color: #B91C1C; }
+.ibx-delta strong.is-calm { color: #0F766E; }
 .ibx-spark { width: 84px; text-align: right; }
 .ibx-spark svg { display: inline-block; width: 72px; height: 18px; color: var(--ibx-color); overflow: visible; }
 .ibx-spark polyline { fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
@@ -241,23 +243,39 @@ export async function mount(el, ctx) {
     update(state);
   }
 
-  function update(state) {
+  async function update(state) {
     if (!current) return;
     const { scope, rows, subYear } = current;
     const yr = Number(state.year);
     subYear.textContent = String(yr);
+    let fireSummary = null;
+    if (scope && scope.hasFireCsvs) {
+      const fires = await data.getFires(state, yr);
+      fireSummary = fires && fires.summary ? fires.summary : null;
+    }
+    if (!current || Number(store.get().year) !== yr) return;
+
     for (let i = 0; i < rows.length; i += 1) {
       const row = rows[i];
       if (row.spec.link) continue;
       const { spec, tr, numEl, unitEl, deltaValEl, spark, med } = row;
       tr.classList.toggle('is-focus', state.focus === spec.id);
-      const value = data.annualValue(scope.series, spec.id, yr, spec.wb);
+      let value = data.annualValue(scope.series, spec.id, yr, spec.wb);
+      if (value === null && fireSummary) {
+        if (spec.id === 'fire_frp' && fireSummary.totalFrpMw > 0) value = fireSummary.totalFrpMw;
+        else if (spec.id === 'fire_count' && fireSummary.detections > 0) value = fireSummary.detections;
+      }
       numEl.textContent = theme.fmt(value, spec.id);
       unitEl.hidden = value === null;
+      deltaValEl.classList.remove('is-surge', 'is-calm');
       if (value !== null && med !== null && med !== 0) {
         const pct = ((value - med) / Math.abs(med)) * 100;
         const sign = pct >= 0 ? '+' : '−';
         deltaValEl.textContent = `${sign}${Math.abs(pct).toFixed(0)}%`;
+        if (pct >= 20) deltaValEl.classList.add('is-surge');
+        else if (pct <= -15) deltaValEl.classList.add('is-calm');
+      } else if (value !== null && spec.id === 'fire_frp' && fireSummary && fireSummary.sensor) {
+        deltaValEl.textContent = `${fireSummary.sensor} live`;
       } else {
         deltaValEl.textContent = '—';
       }

@@ -43,7 +43,7 @@ function detectScope(relPath, fileName) {
 export function buildDataManifest(dataRoot = path.resolve('data')) {
   const scopes = {};
   const ensure = (s) => {
-    if (!scopes[s]) scopes[s] = { fires: [], air: null, series: null };
+    if (!scopes[s]) scopes[s] = { fires: [], air: null, series: null, summaryByYear: null, summaryByForest: null };
     return scopes[s];
   };
 
@@ -59,6 +59,7 @@ export function buildDataManifest(dataRoot = path.resolve('data')) {
       if (!csvHasDataRows(full)) continue;
 
       const rel = path.relative(dataRoot, full).replace(/\\/g, '/');
+      const relLower = rel.toLowerCase();
       const scope = detectScope(rel, ent.name);
       if (!scope) continue;
 
@@ -68,9 +69,15 @@ export function buildDataManifest(dataRoot = path.resolve('data')) {
 
       if (lower === 'series.csv' || lower.includes('series')) {
         bucket.series = url;
-      } else if (lower === 'air.csv' || /(?:^|\/)air(?:\/|_)/.test(rel.toLowerCase())) {
+      } else if (lower.includes('summary_by_year')) {
+        bucket.summaryByYear = url;
+      } else if (lower.includes('summary_by_forest') && !lower.includes('year')) {
+        bucket.summaryByForest = url;
+      } else if (lower.includes('summary') || lower.includes('outage')) {
+        continue;
+      } else if (lower === 'air.csv' || /(?:^|\/)air(?:\/|_)/.test(relLower)) {
         bucket.air = url;
-      } else {
+      } else if (lower === 'fires.csv' || relLower.includes('csv_by_year/') || lower.includes('viirs') || lower.includes('modis') || lower.includes('fire')) {
         const yearMatch = ent.name.match(/(?:^|[_-])((?:19|20)\d{2})(?:[_.-]|$)/);
         const year = yearMatch ? Number(yearMatch[1]) : null;
         const sensor = lower.includes('viirs') ? 'viirs' : lower.includes('modis') ? 'modis' : 'other';

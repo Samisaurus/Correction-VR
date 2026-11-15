@@ -349,6 +349,82 @@ async function loadSeriesCsv(sources, scope) {
   return { scope, variables: finalized, waterBodies: wbOut };
 }
 
+function topKeyFromCounts(map) {
+  let bestKey = null;
+  let bestVal = -1;
+  for (const [k, v] of map.entries()) {
+    if (v > bestVal) {
+      bestVal = v;
+      bestKey = k;
+    }
+  }
+  return bestKey ? { name: bestKey, value: bestVal } : null;
+}
+
+async function loadSummaryData(entry) {
+  if (!entry || (!entry.summaryByYear && !entry.summaryByForest)) return null;
+  const byYear = new Map();
+  const topForests = [];
+
+  if (entry.summaryByYear) {
+    await streamCsv(entry.summaryByYear, (cells, cols, headers) => {
+      const yr = parseYear(cols.year >= 0 ? cells[cols.year] : undefined, undefined);
+      if (!Number.isInteger(yr)) return;
+      const idxOf = (name) => headers.findIndex((h) => h.toLowerCase() === name);
+      const getN = (name) => {
+        const idx = idxOf(name);
+        return idx >= 0 ? (toNum(cells[idx]) ?? 0) : 0;
+      };
+      const modisHigh = getN('modis_high_frp');
+      const modisLow = getN('modis_low_frp');
+      const viirsHigh = getN('viirs_high_frp');
+      const viirsLow = getN('viirs_low_frp');
+      const modisTotal = getN('modis_total') || (modisHigh + modisLow);
+      const viirsTotal = getN('viirs_total') || (viirsHigh + viirsLow);
+      const allTotal = getN('all_total') || (modisTotal + viirsTotal);
+      byYear.set(yr, {
+        year: yr,
+        modisTotal,
+        viirsTotal,
+        allTotal,
+        modisHighFrp: modisHigh,
+        viirsHighFrp: viirsHigh,
+      });
+    }, 0);
+  }
+
+  if (entry.summaryByForest) {
+    await streamCsv(entry.summaryByForest, (cells, cols, headers) => {
+      const idxOf = (name) => headers.findIndex((h) => h.toLowerCase() === name);
+      const fIdx = cols.forest >= 0 ? cols.forest : idxOf('forest_name');
+      const sIdx = cols.state >= 0 ? cols.state : idxOf('state');
+      const tIdx = idxOf('total');
+      const mIdx = idxOf('max_frp_mw');
+      const name = fIdx >= 0 ? String(cells[fIdx] || '').trim() : '';
+      const state = sIdx >= 0 ? String(cells[sIdx] || '').trim() : '';
+      const total = tIdx >= 0 ? (toNum(cells[tIdx]) ?? 0) : 0;
+      const maxFrpMw = mIdx >= 0 ? (toNum(cells[mIdx]) ?? 0) : 0;
+      if (name && total > 0 && topForests.length < 15) {
+        topForests.push({ name, state, total, maxFrpMw });
+      }
+    }, 0);
+  }
+
+  const totals = Array.from(byYear.values()).map((d) => d.allTotal).filter((v) => v > 0).sort((a, b) => a - b);
+  const quantile = (q) => {
+    if (!totals.length) return null;
+    const pos = Math.min(totals.length - 1, Math.max(0, Math.floor(q * (totals.length - 1))));
+    return totals[pos];
+  };
+  return {
+    byYear,
+    topForests,
+    medianTotal: quantile(0.5),
+    p75Total: quantile(0.75),
+    p90Total: quantile(0.9),
+  };
+}
+
 async function loadSpatialCsvByYear(sources, kind, scope, isBasin, defaultYear, clipBbox) {
   const sourceKey = sources.map((s) => (typeof s === 'string' ? s : 'blob')).join('|');
   const bboxKey = clipBbox ? clipBbox.join(',') : '';
@@ -361,10 +437,29 @@ async function loadSpatialCsvByYear(sources, kind, scope, isBasin, defaultYear, 
       : (isBasin ? DATA_CONFIG.gridDeg.basinAir : DATA_CONFIG.gridDeg.countryAir);
 
     const byYear = new Map();
+    const statsByYear = new Map();
     const minLon = clipBbox ? clipBbox[0] : -Infinity;
     const minLat = clipBbox ? clipBbox[1] : -Infinity;
     const maxLon = clipBbox ? clipBbox[2] : Infinity;
     const maxLat = clipBbox ? clipBbox[3] : Infinity;
+
+    const getStats = (yr, src) => {
+      let s = statsByYear.get(yr);
+      if (!s) {
+        const lowerSrc = typeof src === 'string' ? src.toLowerCase() : '';
+        const sensor = lowerSrc.includes('viirs') ? 'VIIRS' : lowerSrc.includes('modis') ? 'MODIS' : null;
+        s = {
+          detections: 0,
+          totalFrpMw: 0,
+          maxFrpMw: 0,
+          sensor,
+          stateCounts: new Map(),
+          forestCounts: new Map(),
+        };
+        statsByYear.set(yr, s);
+      }
+      return s;
+    };
 
     for (const src of sources) {
       await streamCsv(src, (cells, cols) => {
@@ -402,6 +497,21 @@ async function loadSpatialCsvByYear(sources, kind, scope, isBasin, defaultYear, 
             if (dateStr < cur.first) cur.first = dateStr;
             if (dateStr > cur.last) cur.last = dateStr;
           }
+
+          const st = getStats(yr, src);
+          st.detections += count;
+          st.totalFrpMw += frp;
+          if (frp > st.maxFrpMw) st.maxFrpMw = frp;
+          if (cols.state >= 0) {
+            const stateName = String(cells[cols.state] || '').trim();
+            if (stateName) st.stateCounts.set(stateName, (st.stateCounts.get(stateName) || 0) + count);
+          }
+          if (cols.forest >= 0) {
+            const fName = String(cells[cols.forest] || '').trim();
+            if (fName && !fName.startsWith('Other forest land')) {
+              st.forestCounts.set(fName, (st.forestCounts.get(fName) || 0) + count);
+            }
+          }
         } else {
           const aod = cols.aod >= 0 ? toNum(cells[cols.aod]) : null;
           const pm25 = cols.pm25 >= 0 ? toNum(cells[cols.pm25]) : null;
@@ -438,7 +548,16 @@ async function loadSpatialCsvByYear(sources, kind, scope, isBasin, defaultYear, 
           });
         }
       }
-      collections.set(yr, { type: 'FeatureCollection', scope, year: yr, features });
+      const st = statsByYear.get(yr);
+      const summary = st ? {
+        detections: Math.round(st.detections),
+        totalFrpMw: Math.round(st.totalFrpMw),
+        maxFrpMw: Math.round(st.maxFrpMw),
+        sensor: st.sensor,
+        topState: topKeyFromCounts(st.stateCounts),
+        topForest: topKeyFromCounts(st.forestCounts),
+      } : null;
+      collections.set(yr, { type: 'FeatureCollection', scope, year: yr, features, summary });
     }
     return collections;
   })();
@@ -503,17 +622,47 @@ export async function getScope(state) {
   if (!cache.has(key)) {
     cache.set(key, (async () => {
       const csvOnly = DATA_CONFIG.mode === 'csv';
-      const resolvedSeries = DATA_CONFIG.mode !== 'geojson'
-        ? await resolveSourcesForYear(path, 'series', '')
-        : { sources: [] };
-      const [geo, rivers, seriesJson, stats, seriesFromCsv] = await Promise.all([
+      const [resolvedSeries, manifest] = await Promise.all([
+        DATA_CONFIG.mode !== 'geojson' ? resolveSourcesForYear(path, 'series', '') : Promise.resolve({ sources: [] }),
+        getManifest(),
+      ]);
+      const mEntry = manifest && manifest.scopes ? manifest.scopes[path] : null;
+      const [geo, rivers, seriesJson, stats, seriesFromCsv, summary] = await Promise.all([
         fetchJson(`${BASE}${path}/geo.geojson`),
         fetchJson(`${BASE}${path}/rivers.geojson`),
         csvOnly ? Promise.resolve(null) : fetchJson(`${BASE}${path}/series.json`),
         csvOnly ? Promise.resolve(null) : fetchJson(`${BASE}${path}/stats.json`),
         resolvedSeries.sources.length ? loadSeriesCsv(resolvedSeries.sources, path) : Promise.resolve(null),
+        DATA_CONFIG.mode !== 'geojson' ? loadSummaryData(mEntry) : Promise.resolve(null),
       ]);
-      return { meta: buildMeta(country, view, regions), geo, rivers, series: seriesFromCsv || seriesJson, stats };
+
+      let mergedSeries = seriesFromCsv || seriesJson;
+      if (summary && summary.byYear && summary.byYear.size) {
+        if (!mergedSeries) mergedSeries = { scope: path, variables: {}, waterBodies: {} };
+        if (!mergedSeries.variables.fire_count) {
+          const [y0, y1] = Array.isArray(regions.years) ? regions.years : [2012, 2025];
+          const annual = [];
+          for (const row of Array.from(summary.byYear.values()).sort((a, b) => a.year - b.year)) {
+            if (row.year >= y0 && row.year <= y1) {
+              annual.push([row.year, row.allTotal || row.viirsTotal || row.modisTotal]);
+            }
+          }
+          if (annual.length) mergedSeries.variables.fire_count = { annual, monthly: [] };
+        }
+      }
+
+      const fireEntries = mEntry && Array.isArray(mEntry.fires)
+        ? mEntry.fires
+        : (view === 'basin' && manifest && manifest.scopes && manifest.scopes[country.id] && manifest.scopes[country.id].fires) || [];
+      return {
+        meta: buildMeta(country, view, regions),
+        geo,
+        rivers,
+        series: mergedSeries,
+        stats,
+        summary,
+        hasFireCsvs: fireEntries.length > 0,
+      };
     })());
   }
   return cache.get(key);

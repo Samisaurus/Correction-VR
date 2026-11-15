@@ -56,6 +56,50 @@ function signed(v, digits) {
   return `${v < 0 ? '−' : '+'}${abs}`;
 }
 
+function erfcApprox(x) {
+  const z = Math.abs(x);
+  const t = 1 / (1 + 0.5 * z);
+  const ans = t * Math.exp(-z * z - 1.26551223 + t * (1.00002368 + t * (0.37409196
+    + t * (0.09678418 + t * (-0.18628806 + t * (0.27886807 + t * (-1.13520398
+    + t * (1.48851587 + t * (-0.82215223 + t * 0.17087277)))))))));
+  return x >= 0 ? ans : 2 - ans;
+}
+
+export function computeTrendStats(annualPoints, y0) {
+  const pts = (annualPoints || []).filter((d) => d && d.value !== null && Number.isFinite(d.value));
+  const n = pts.length;
+  if (n < 4) return null;
+  let S = 0;
+  const slopes = [];
+  const tieMap = new Map();
+  for (let i = 0; i < n; i += 1) {
+    tieMap.set(pts[i].value, (tieMap.get(pts[i].value) || 0) + 1);
+    for (let j = i + 1; j < n; j += 1) {
+      const diff = pts[j].value - pts[i].value;
+      if (diff > 0) S += 1;
+      else if (diff < 0) S -= 1;
+      const dx = pts[j].year - pts[i].year;
+      if (dx !== 0) slopes.push(diff / dx);
+    }
+  }
+  slopes.sort((a, b) => a - b);
+  const mid = slopes.length >> 1;
+  const senSlope = slopes.length ? (slopes.length % 2 ? slopes[mid] : (slopes[mid - 1] + slopes[mid]) / 2) : 0;
+  const residuals = pts.map((p) => p.value - senSlope * (p.year - y0)).sort((a, b) => a - b);
+  const rMid = residuals.length >> 1;
+  const senIntercept = residuals.length % 2 ? residuals[rMid] : (residuals[rMid - 1] + residuals[rMid]) / 2;
+  let tieAdj = 0;
+  for (const t of tieMap.values()) {
+    if (t > 1) tieAdj += t * (t - 1) * (2 * t + 5);
+  }
+  const varS = (n * (n - 1) * (2 * n + 5) - tieAdj) / 18;
+  const z = varS > 0 ? (S > 0 ? (S - 1) : S < 0 ? (S + 1) : 0) / Math.sqrt(varS) : 0;
+  const p = erfcApprox(Math.abs(z) / Math.SQRT2);
+  const tau = S / ((n * (n - 1)) / 2);
+  const direction = p < 0.05 ? (S > 0 ? 'increasing' : 'decreasing') : 'no clear trend';
+  return { basis: 'annual', tau, p, sen_slope: senSlope, sen_intercept: senIntercept, direction, n };
+}
+
 function trendText(t, unit, theme) {
   if (!t) return null;
   const label = t.basis === 'annual' ? 'Mann-Kendall (annual)' : 'Seasonal Mann-Kendall (monthly)';
@@ -88,7 +132,12 @@ export async function mount(el, ctx) {
     b.textContent = GROUP_LABEL[g];
     b.setAttribute('aria-pressed', 'false');
     b.addEventListener('click', () => {
-      const varId = GROUP_DEFAULT[g] || (current && current.meta.fishMetric);
+      let varId = GROUP_DEFAULT[g] || (current && current.meta.fishMetric);
+      if (g === 'fire' && current && current.series) {
+        const hasFrp = data.annualSeries(current.series, 'fire_frp').some((d) => d.value !== null);
+        const hasCount = data.annualSeries(current.series, 'fire_count').some((d) => d.value !== null);
+        if (!hasFrp && hasCount) varId = 'fire_count';
+      }
       if (varId) store.set({ focus: varId });
     });
     seg.appendChild(b);
@@ -123,7 +172,12 @@ export async function mount(el, ctx) {
   function draw(state) {
     if (!current) return;
     const { meta, series, stats: st } = current;
-    const focus = VARS[state.focus] ? state.focus : 'fire_frp';
+    let focus = VARS[state.focus] ? state.focus : 'fire_frp';
+    if (focus === 'fire_frp' && series) {
+      const hasFrp = data.annualSeries(series, 'fire_frp').some((d) => d.value !== null);
+      const hasCount = data.annualSeries(series, 'fire_count').some((d) => d.value !== null);
+      if (!hasFrp && hasCount) focus = 'fire_count';
+    }
     const v = VARS[focus];
     for (const g of GROUPS) segButtons[g].setAttribute('aria-pressed', String(v.group === g));
     const unit = theme.unitFor(focus, meta);
@@ -154,7 +208,7 @@ export async function mount(el, ctx) {
     }
 
     const trends = (st && st.trends ? st.trends : []).filter((t) => t.variable === focus && (wb ? t.waterBody === wb : !t.waterBody));
-    const ta = trends.find((t) => t.basis === 'annual');
+    const ta = trends.find((t) => t.basis === 'annual') || computeTrendStats(annual, y0);
     const tm = trends.find((t) => t.basis === 'monthly');
     const sen = ta && ta.sen_slope !== null && ta.sen_intercept !== null
       ? annual.map((d) => ({ date: d.date, value: ta.sen_intercept + ta.sen_slope * (d.year - y0) }))
