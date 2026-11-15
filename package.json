@@ -5,7 +5,8 @@
   "version": "1.0.0",
   "scripts": {
     "dev": "vite --port 3000 --host",
-    "build": "vite build"
+    "build": "vite build",
+    "index-data": "node --input-type=module -e \"import fs from 'node:fs'; import { buildDataManifest, buildScopeIndex } from './vite.config.js'; fs.writeFileSync('data/manifest.json', JSON.stringify(buildDataManifest())); fs.writeFileSync('data/scope-index.json', JSON.stringify(buildScopeIndex()));\""
   },
   "devDependencies": {
     "vite": "^5.4.0"

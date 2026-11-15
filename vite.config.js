@@ -527,9 +527,11 @@ function dataPipelinePlugin() {
       const src = path.resolve('data');
       const dest = path.resolve('dist/data');
       if (fs.existsSync(src)) {
+        const manifestJson = JSON.stringify(buildDataManifest(src));
+        const scopeIndexJson = getScopeIndexJson();
+        fs.writeFileSync(path.join(src, 'manifest.json'), manifestJson);
+        fs.writeFileSync(path.join(src, 'scope-index.json'), scopeIndexJson);
         fs.cpSync(src, dest, { recursive: true });
-        fs.writeFileSync(path.join(dest, 'manifest.json'), JSON.stringify(buildDataManifest(src)));
-        fs.writeFileSync(path.join(dest, 'scope-index.json'), getScopeIndexJson());
       }
     },
   };
