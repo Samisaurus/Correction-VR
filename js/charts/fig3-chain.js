@@ -15,7 +15,7 @@ const STYLE = `
   gap: 8px 12px;
 }
 .f3-title-wrap { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.f3-title { font-family: var(--f-serif); font-size: 16px; font-weight: 700; margin: 0; color: var(--c-ink); }
+.f3-title { font-family: var(--f-serif); font-size: 17px; font-weight: 700; letter-spacing: -0.01em; margin: 0; color: var(--c-ink); }
 .f3-sub { font-family: var(--f-mono); font-size: 11px; color: var(--c-muted); font-variant-numeric: tabular-nums; }
 .f3-tabs {
   display: inline-flex;
@@ -218,7 +218,7 @@ export async function mount(el, ctx) {
   titleWrap.className = 'f3-title-wrap';
   const titleEl = document.createElement('h3');
   titleEl.className = 'f3-title';
-  titleEl.textContent = 'Fig. 3 — Combustion Plume & Atmospheric Footprint';
+  titleEl.textContent = 'Combustion Plume & Atmospheric Footprint';
   const subEl = document.createElement('span');
   subEl.className = 'f3-sub';
   titleWrap.append(titleEl, subEl);
@@ -226,7 +226,7 @@ export async function mount(el, ctx) {
   const tabsEl = document.createElement('div');
   tabsEl.className = 'f3-tabs';
   tabsEl.setAttribute('role', 'tablist');
-  tabsEl.setAttribute('aria-label', 'Fig. 3 analytical views');
+  tabsEl.setAttribute('aria-label', 'Atmospheric footprint analytical views');
 
   const VIEWS = [
     { id: 'plume', label: 'Plume & Pollutants' },
@@ -661,7 +661,7 @@ export async function mount(el, ctx) {
     dispatchBody.textContent = summaryInfo.text;
 
     const [y0, y1] = meta.years || [2002, 2026];
-    cap.innerHTML = `<strong>Fig. 3</strong> — ${escHtml(meta.name)} (${y0}–${y1}). Atmospheric species from Copernicus CAMS GFAS (2003–2026); MODIS/VIIRS detections cover 2002–2026. Click any pollutant or switch views above.`;
+    cap.innerHTML = `${escHtml(meta.name)} (${y0}–${y1}). Atmospheric species from Copernicus CAMS GFAS (2003–2026); MODIS/VIIRS detections cover 2002–2026. Click any pollutant or switch views above.`;
   }
 
   function renderActive(state) {
@@ -673,6 +673,7 @@ export async function mount(el, ctx) {
 
   async function build(state) {
     const my = ++token;
+    theme.spinner(stage, 'Loading atmospheric plume data…');
     const scope = await data.getScope(state);
     if (my !== token) return;
     current = scope && scope.meta ? scope : null;

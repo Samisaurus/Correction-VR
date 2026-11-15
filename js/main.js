@@ -10,6 +10,7 @@ import * as mapMod from './map/map.js';
 import * as legendMod from './map/legend.js';
 import * as infoboxMod from './ui/infobox.js';
 import * as fig1Mod from './charts/fig1-trend.js';
+import * as localRiskMod from './ui/local-risk.js';
 import * as fig2Mod from './charts/fig2-before-after.js';
 import * as fig3Mod from './charts/fig3-chain.js';
 import * as fig4Mod from './charts/fig4-outlook.js';
@@ -24,6 +25,7 @@ const MODULES = [
   { id: 'map-legend', mod: legendMod },
   { id: 'infobox', mod: infoboxMod },
   { id: 'fig1', mod: fig1Mod },
+  { id: 'local-risk', mod: localRiskMod },
   { id: 'fig2', mod: fig2Mod },
   { id: 'fig3', mod: fig3Mod },
   { id: 'outlook', mod: fig4Mod },

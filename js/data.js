@@ -368,7 +368,7 @@ async function resolveSourcesForYear(scope, kind, year) {
         const picked = selectSensorEntries(entry.fires, year);
         if (picked.length) {
           const gridEntry = picked.find((e) => e.gridUrl);
-          return { sources: picked.map((e) => e.url), gridUrl: gridEntry ? gridEntry.gridUrl : null };
+          return { sources: picked.map((e) => e.url).filter(Boolean), gridUrl: gridEntry ? gridEntry.gridUrl : null };
         }
       }
       const emFiles = entry && Array.isArray(entry.emissionsByYearFiles) ? entry.emissionsByYearFiles : [];
@@ -382,7 +382,7 @@ async function resolveSourcesForYear(scope, kind, year) {
       const emFiles = entry && Array.isArray(entry.emissionsByYearFiles) ? entry.emissionsByYearFiles : [];
       const emMatch = emFiles.find((e) => e.year === year);
       if (emMatch) {
-        return { sources: [emMatch.url], gridUrl: emMatch.gridUrl || null };
+        return { sources: emMatch.url ? [emMatch.url] : [], gridUrl: emMatch.gridUrl || null };
       }
     }
     const direct = entry && entry[kind];
@@ -1158,6 +1158,41 @@ export function getFires(state, year) {
 
 export function getAir(state, year) {
   return yearLayer(state, 'air', year);
+}
+
+export async function getAllFireGrids(countryId) {
+  const scope = countryId || 'usa';
+  const key = `allFireGrids:${scope}`;
+  if (!cache.has(key)) {
+    cache.set(key, (async () => {
+      const manifest = await getManifest();
+      const entry = manifest && manifest.scopes ? manifest.scopes[scope] : null;
+      const fireEntries = entry && Array.isArray(entry.fires) ? entry.fires : [];
+      const byYear = new Map();
+      for (const f of fireEntries) {
+        if (!Number.isInteger(f.year)) continue;
+        const prev = byYear.get(f.year);
+        if (!prev || (f.sensor === 'viirs' && prev.sensor !== 'viirs')) {
+          byYear.set(f.year, f);
+        }
+      }
+      const years = Array.from(byYear.keys()).sort((a, b) => a - b);
+      const results = [];
+      const BATCH = 6;
+      for (let i = 0; i < years.length; i += BATCH) {
+        const chunk = years.slice(i, i + BATCH);
+        const loaded = await Promise.all(chunk.map(async (yr) => {
+          const item = byYear.get(yr);
+          const gridUrl = item?.gridUrl || `./data/fire-grid/${scope}-${yr}.json`;
+          const fc = await fetchJsonOptional(gridUrl);
+          return fc && Array.isArray(fc.features) ? { year: yr, sensor: item?.sensor || 'modis', features: fc.features } : null;
+        }));
+        for (const r of loaded) if (r) results.push(r);
+      }
+      return results;
+    })());
+  }
+  return cache.get(key);
 }
 
 function pickVariable(series, varId) {

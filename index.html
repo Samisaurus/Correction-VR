@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Ember Observatory — Wildfire & Atmospheric Smoke</title>
-  <meta name="description" content="Ember Observatory: wildfire activity, atmospheric smoke emissions, and future fire risk outlook across Canada, the USA and Russia, 2002–2035.">
+  <title>Ember Observatory — Wildfire &amp; Atmospheric Smoke</title>
+  <meta name="description" content="Ember Observatory: wildfire activity, local community fire risk, atmospheric smoke emissions, and 2027–2035 outlook across Canada, the USA and Russia.">
   <meta name="color-scheme" content="light">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23fff'/%3E%3Cpath d='M16 4c3 5 7 8 7 14a7 7 0 0 1-14 0c0-3 1-5 3-7 0 3 1 4 3 5 0-4 0-8 1-12z' fill='%23D55E00'/%3E%3C/svg%3E">
 
@@ -24,39 +24,43 @@
 <body>
   <main class="page">
     <header id="site-header" class="slot" aria-label="Site header">
-      <p class="placeholder">#site-header · loading…</p>
+      <div class="ember-loading"><span class="ember-spinner" aria-hidden="true"></span><span>Loading header…</span></div>
     </header>
 
     <div id="year-slider" class="slot" aria-label="Year slider">
-      <p class="placeholder">#year-slider · loading…</p>
+      <div class="ember-loading"><span class="ember-spinner" aria-hidden="true"></span><span>Loading timeline…</span></div>
     </div>
 
     <aside id="map-legend" class="slot" aria-label="Map legend and severity guide">
-      <p class="placeholder">#map-legend · loading…</p>
+      <div class="ember-loading"><span class="ember-spinner" aria-hidden="true"></span><span>Loading telemetry…</span></div>
     </aside>
 
-    <figure id="map" class="slot" aria-label="Map">
-      <p class="placeholder">#map · loading…</p>
+    <figure id="map" class="slot" aria-label="Interactive wildfire globe">
+      <div class="ember-loading"><span class="ember-spinner" aria-hidden="true"></span><span>Loading map…</span></div>
     </figure>
 
-    <figure id="fig1" class="slot" aria-label="Figure 1, trend">
-      <p class="placeholder">#fig1 · Fig. 1 trend · loading…</p>
+    <figure id="fig1" class="slot" aria-label="Historical fire and smoke trend">
+      <div class="ember-loading"><span class="ember-spinner" aria-hidden="true"></span><span>Loading historical trend…</span></div>
     </figure>
 
-    <figure id="fig2" class="slot" aria-label="Figure 2, before and after">
-      <p class="placeholder">#fig2 · Fig. 2 before / after · loading…</p>
-    </figure>
+    <section id="local-risk" class="slot" aria-label="Local fire risk near you">
+      <div class="ember-loading"><span class="ember-spinner" aria-hidden="true"></span><span>Loading local fire risk estimator…</span></div>
+    </section>
 
-    <aside id="infobox" class="slot" aria-label="Infobox">
-      <p class="placeholder">#infobox · loading…</p>
+    <aside id="infobox" class="slot" aria-label="National wildfire archive table">
+      <div class="ember-loading"><span class="ember-spinner" aria-hidden="true"></span><span>Loading archive summary…</span></div>
     </aside>
 
-    <figure id="fig3" class="slot" aria-label="Figure 3, the chain">
-      <p class="placeholder">#fig3 · Fig. 3 chain · loading…</p>
+    <figure id="fig2" class="slot" aria-label="Before and after fire-year comparison">
+      <div class="ember-loading"><span class="ember-spinner" aria-hidden="true"></span><span>Loading before vs. after comparison…</span></div>
     </figure>
 
-    <section id="outlook" class="slot" aria-label="Figure 4, wildfire horizon and trend predictor">
-      <p class="placeholder">#outlook · Fig. 4 outlook · loading…</p>
+    <figure id="fig3" class="slot" aria-label="Combustion plume and atmospheric footprint">
+      <div class="ember-loading"><span class="ember-spinner" aria-hidden="true"></span><span>Loading smoke footprint…</span></div>
+    </figure>
+
+    <section id="outlook" class="slot" aria-label="Wildfire outlook, methodology and AI analyst">
+      <div class="ember-loading"><span class="ember-spinner" aria-hidden="true"></span><span>Loading outlook &amp; AI analyst…</span></div>
     </section>
   </main>
   <noscript><p class="placeholder">Ember Observatory needs JavaScript to load its data files.</p></noscript>

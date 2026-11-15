@@ -114,6 +114,18 @@ export function unitFor(varId) {
   return v ? v.unit : '';
 }
 
+export function spinner(el, label = 'Loading…') {
+  if (!el) return null;
+  for (const child of Array.from(el.childNodes)) {
+    if (!(child.nodeType === 1 && child.id)) child.remove();
+  }
+  const wrap = document.createElement('div');
+  wrap.className = 'ember-loading';
+  wrap.innerHTML = `<span class="ember-spinner" aria-hidden="true"></span><span>${escHtml(label)}</span>`;
+  el.appendChild(wrap);
+  return wrap;
+}
+
 export function placeholder(el, text = 'No data for this selection') {
   if (!el) return null;
   for (const child of Array.from(el.childNodes)) {

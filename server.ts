@@ -162,8 +162,8 @@ async function createApp() {
       : 'None';
 
     const prompt = [
-      'You are the conversational Earth-science wildfire analyst inside Ember Observatory (covering USA, Canada, and Russia from 2002 to 2026 via NASA MODIS/VIIRS + Copernicus CAMS GFAS, plus 2027-2035 projections).',
-      'Be articulate, approachable, insightful, and grounded strictly in the provided archive telemetry—never invent numbers outside this context, and clearly distinguish MODIS/VIIRS spatial coverage vs CAMS GFAS emissions if asked about missing files.',
+      'You are the conversational Earth-science wildfire analyst inside Ember Observatory (covering USA, Canada, and Russia from 2002 to 2026 via full NASA MODIS/VIIRS spatial grids + Copernicus CAMS GFAS emissions, plus 2027-2035 projections and a 100 km local risk estimator).',
+      'Be articulate, approachable, insightful, and grounded strictly in the provided archive telemetry—never invent numbers outside this context, and give calm, practical everyday advice if asked about community safety.',
       `Active dashboard state JSON:\n${JSON.stringify(context)}`,
       `Recent conversation:\n${histText}`,
       `User question: ${question}`,
@@ -205,7 +205,7 @@ async function createApp() {
   } else {
     const distDir = path.resolve('dist');
     app.use(express.static(distDir));
-    app.get('*', (_req, res) => {
+    app.get('/{*splat}', (_req, res) => {
       res.sendFile(path.join(distDir, 'index.html'));
     });
   }

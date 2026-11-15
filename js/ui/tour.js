@@ -1,8 +1,8 @@
 // js/ui/tour.js
-// Purpose: first-load-only spotlight onboarding tour explaining Ember Observatory's features,
-//          plus manual replay support via the header "Take tour" button.
+// Purpose: integrated onboarding tour matching Ember Observatory's editorial cards and country borders,
+//          plus manual replay via the header "Take tour" button.
 
-const STORAGE_KEY = 'ember_obs_tour_v1';
+const STORAGE_KEY = 'ember_obs_tour_v2';
 
 const STYLE = `
 .etr-wrap {
@@ -14,26 +14,25 @@ const STYLE = `
 .etr-wrap[hidden] { display: none; }
 .etr-spot {
   position: fixed;
-  border-radius: 8px;
-  border: 2px solid var(--c-fire);
-  box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.56), 0 0 0 5px rgba(213, 94, 0, 0.22);
+  border-radius: var(--radius-win, 10px);
+  border: 2px solid var(--c-win-border-hover, var(--c-fire));
+  box-shadow: 0 0 0 9999px rgba(28, 25, 23, 0.42), 0 0 0 5px rgba(213, 94, 0, 0.14);
   pointer-events: none;
-  transition: top 260ms var(--ease-out), left 260ms var(--ease-out), width 260ms var(--ease-out), height 260ms var(--ease-out);
+  transition: top 240ms var(--ease-out), left 240ms var(--ease-out), width 240ms var(--ease-out), height 240ms var(--ease-out);
 }
 .etr-card {
   position: fixed;
-  width: min(352px, calc(100vw - 24px));
+  width: min(356px, calc(100vw - 24px));
   background: var(--c-paper);
   color: var(--c-ink);
-  border: 1.5px solid var(--c-rule);
-  border-top: 3px solid var(--c-fire);
-  border-radius: 8px;
-  padding: 14px 16px 13px;
-  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.24), 0 2px 8px rgba(15, 23, 42, 0.10);
+  border: 2.5px solid var(--c-win-border, var(--c-edge-hover));
+  border-radius: var(--radius-win, 10px);
+  padding: 15px 17px 14px;
+  box-shadow: var(--shadow-card-hover, 0 12px 32px rgba(28, 25, 23, 0.16));
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  transition: top 260ms var(--ease-out), left 260ms var(--ease-out), opacity 180ms var(--ease-out);
+  gap: 9px;
+  transition: top 240ms var(--ease-out), left 240ms var(--ease-out), opacity 180ms var(--ease-out);
   z-index: 9001;
 }
 .etr-top {
@@ -49,102 +48,131 @@ const STYLE = `
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--c-fire);
-}
-.etr-close {
-  border: 0;
-  background: transparent;
-  color: var(--c-muted);
-  font-size: 16px;
-  line-height: 1;
-  padding: 2px 6px;
+  background: rgba(213, 94, 0, 0.08);
+  padding: 2px 8px;
   border-radius: 4px;
 }
-.etr-close:hover { background: var(--c-panel); color: var(--c-ink); }
+.etr-close {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--c-muted);
+  font-size: 17px;
+  line-height: 1;
+  padding: 2px 7px;
+  border-radius: 5px;
+}
+.etr-close:hover { background: var(--c-panel); border-color: var(--c-edge); color: var(--c-ink); }
 .etr-title {
   margin: 0;
   font-family: var(--f-serif);
-  font-size: 17px;
+  font-size: 17.5px;
   font-weight: 700;
+  letter-spacing: -0.01em;
   line-height: 1.25;
   color: var(--c-ink);
 }
 .etr-body {
   margin: 0;
   font-size: 13px;
-  line-height: 1.52;
+  line-height: 1.54;
   color: var(--c-muted);
+}
+.etr-dots {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 2px;
+}
+.etr-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 99px;
+  background: var(--c-edge);
+  transition: width 180ms var(--ease-out), background-color 180ms var(--ease-out);
+}
+.etr-dot.is-active {
+  width: 18px;
+  background: var(--c-fire);
 }
 .etr-foot {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-top: 4px;
-  padding-top: 9px;
+  margin-top: 2px;
+  padding-top: 10px;
   border-top: 1px solid var(--c-edge);
 }
 .etr-skip {
   border: 0;
   background: transparent;
-  padding: 4px 4px;
+  padding: 4px 2px;
   font-size: 12px;
+  font-weight: 500;
   color: var(--c-muted);
 }
 .etr-skip:hover { color: var(--c-ink); text-decoration: underline; background: transparent; }
 .etr-nav { display: flex; align-items: center; gap: 6px; }
 .etr-btn {
-  padding: 5px 11px;
+  padding: 5px 12px;
   font-size: 12px;
   font-weight: 600;
-  border-radius: 5px;
+  border-radius: 6px;
   border: 1px solid var(--c-edge);
   background: var(--c-panel);
   color: var(--c-ink);
 }
+.etr-btn:hover:not([disabled]) { background: var(--c-paper); border-color: var(--c-edge-hover); }
 .etr-btn.is-primary {
   background: var(--c-ink);
   border-color: var(--c-ink);
   color: #FFFFFF;
 }
-.etr-btn.is-primary:hover { background: #2D333B; }
+.etr-btn.is-primary:hover { background: #334155; }
 `;
 
 const STEPS = [
   {
     selector: '#region-tabs',
-    kicker: 'Field Guide · Step 1 of 6',
-    title: 'Choose Your Boreal Frontier',
-    body: 'Switch between the United States, Canada, and Russia to contrast twenty-five years of satellite detections, radiative intensity, and transboundary smoke plumes.',
+    kicker: 'Step 1 of 7 · Frontier',
+    title: 'Choose Canada, USA, or Russia',
+    body: 'Switch between twenty-five years (2002–2026) of MODIS & VIIRS active-fire detections and CAMS smoke emissions across all three northern regions.',
   },
   {
     selector: '#year-slider',
-    kicker: 'Chronology · Step 2 of 6',
+    kicker: 'Step 2 of 7 · Timeline',
     title: 'Scrub & Replay 2002–2026',
-    body: 'Slide across any season or press Play to watch fire corridors ignite chronologically. Amber triangles along the rail mark extraordinary wildfire years.',
+    body: 'Slide across any season or press Play to watch fire corridors evolve chronologically. Amber triangles mark landmark wildfire seasons.',
   },
   {
     selector: '#map',
-    kicker: 'Satellite Globe · Step 3 of 6',
-    title: 'Explore Active Fires & CAMS Plumes',
-    body: 'Hover any hotspot cluster to inspect MODIS/VIIRS counts and radiative power, or use the top-right toggle to overlay Copernicus CAMS carbon and PM₂.₅ smoke.',
+    kicker: 'Step 3 of 7 · Satellite Map',
+    title: 'Explore Active Fires, Smoke & Pin Drops',
+    body: 'Inspect hotspot clusters, toggle atmospheric smoke plumes in the top-right corner, or drop a pin on the map to measure wildfire risk near any community.',
   },
   {
-    selector: '#map-legend',
-    kicker: 'Telemetry Key · Step 4 of 6',
-    title: 'Read Live Field Severity',
-    body: 'Each season updates detection volume, peak MW intensity, atmospheric CO₂ rank, and a density scale calibrated to the selected country.',
+    selector: '#local-risk',
+    kicker: 'Step 4 of 7 · Community Check',
+    title: 'Local Fire Risk Near You',
+    body: 'Select a country and city—or place a pin directly on the map—to see the combined fire probability within 100 km along with calm, practical safety tips.',
+  },
+  {
+    selector: '#fig2',
+    kicker: 'Step 5 of 7 · Season Contrast',
+    title: 'Before vs. After Fire-Year Comparison',
+    body: 'Compare May–September fire activity before and during/after major fire seasons using statistical significance tests.',
   },
   {
     selector: '#fig3',
-    kicker: 'Diagnostics · Step 5 of 6',
-    title: 'Plume Chemistry & Season Dispatch',
-    body: 'Compare eight atmospheric pollutants against their 2003–2026 medians, inspect leading forest corridors, and read the archival field note for each year.',
+    kicker: 'Step 6 of 7 · Smoke Chemistry',
+    title: 'Combustion Plume & Atmospheric Footprint',
+    body: 'Compare eight atmospheric pollutants against 2003–2026 medians, inspect leading forest corridors, and read each season’s field dispatch.',
   },
   {
     selector: '#outlook',
-    kicker: 'Horizon Lab · Step 6 of 6',
-    title: 'Simulate 2035 & Ask the AI Advisor',
-    body: 'Project future wildfire stress from 2027 to 2035, project hotspots onto the 3D map, or ask follow-up questions to explore historical peaks and scenarios.',
+    kicker: 'Step 7 of 7 · Outlook & AI',
+    title: 'Forecast, Methodology & Ask Ember AI',
+    body: 'Project 2027–2035 wildfire stress, review our exact data & prediction formulas in the Methodology tab, or chat with the standout Ember AI analyst.',
   },
 ];
 
@@ -194,6 +222,7 @@ export function startTour(theme) {
     </div>
     <h3 class="etr-title" data-ref="title"></h3>
     <p class="etr-body" data-ref="body"></p>
+    <div class="etr-dots" data-ref="dots" aria-hidden="true"></div>
     <div class="etr-foot">
       <button type="button" class="etr-skip" data-ref="skip">Skip tour</button>
       <div class="etr-nav">
@@ -210,6 +239,7 @@ export function startTour(theme) {
   const kickerEl = q('kicker');
   const titleEl = q('title');
   const bodyEl = q('body');
+  const dotsEl = q('dots');
   const closeBtn = q('close');
   const skipBtn = q('skip');
   const prevBtn = q('prev');
@@ -243,8 +273,8 @@ export function startTour(theme) {
       spot.style.height = `${Math.round(Math.max(24, sHeight))}px`;
 
       const cardRect = card.getBoundingClientRect();
-      const cW = cardRect.width || Math.min(352, vw - 24);
-      const cH = cardRect.height || 210;
+      const cW = cardRect.width || Math.min(356, vw - 24);
+      const cH = cardRect.height || 220;
       const gap = 14;
 
       let left = sLeft + sWidth / 2 - cW / 2;
@@ -289,6 +319,7 @@ export function startTour(theme) {
     kickerEl.textContent = step.kicker;
     titleEl.textContent = step.title;
     bodyEl.textContent = step.body;
+    dotsEl.innerHTML = STEPS.map((_, di) => `<span class="etr-dot${di === index ? ' is-active' : ''}"></span>`).join('');
     prevBtn.disabled = index === 0;
     nextBtn.textContent = index === STEPS.length - 1 ? 'Start exploring' : 'Next';
 

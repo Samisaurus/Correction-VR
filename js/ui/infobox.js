@@ -424,6 +424,7 @@ export async function mount(el, ctx) {
 
   async function build(state) {
     const my = ++token;
+    if (!current) theme.spinner(el, 'Loading archive metrics…');
     const scope = await data.getScope(state);
     if (my !== token) return;
     if (!scope || !scope.meta) { current = null; placeholder(el); return; }

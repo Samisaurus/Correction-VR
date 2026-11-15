@@ -7,12 +7,13 @@ const STYLE = `
 .leg-title-wrap { display: flex; flex-direction: column; min-width: 0; }
 .leg-kicker { font-family: var(--f-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--c-muted); }
 .leg-title { font-family: var(--f-serif); font-size: 16px; font-weight: 700; color: var(--c-ink); line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.leg-badge { flex: 0 0 auto; padding: 3px 8px; border-radius: 5px; font-family: var(--f-mono); font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; border: 1px solid var(--c-edge); background: var(--c-paper); color: var(--c-muted); }
+.leg-badge { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: 5px; font-family: var(--f-mono); font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; border: 1px solid var(--c-edge); background: var(--c-paper); color: var(--c-muted); }
 .leg-badge.is-extreme { background: #FEF2F2; border-color: #FCA5A5; color: #B91C1C; }
 .leg-badge.is-elevated { background: #FFFBEB; border-color: #FCD34D; color: #B45309; }
 .leg-badge.is-moderate { background: #FFF7ED; border-color: #FDBA74; color: #C2410C; }
 .leg-badge.is-baseline { background: #F0FDF4; border-color: #86EFAC; color: #15803D; }
 .leg-badge.is-loading { background: #EFF6FF; border-color: #93C5FD; color: #1D4ED8; }
+.leg-brief { display: flex; align-items: center; gap: 7px; margin: 8px 0 0; font-size: 11.5px; line-height: 1.4; color: var(--c-ink); }
 .leg-telemetry { padding: 10px 14px; border-bottom: 1px solid var(--c-edge); background: var(--c-panel); }
 .leg-kpis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
 .leg-kpi { background: var(--c-paper); border: 1px solid var(--c-edge); border-radius: 5px; padding: 6px 8px; min-width: 0; }
@@ -21,7 +22,6 @@ const STYLE = `
 .leg-kpi-sub { display: block; font-size: 10.5px; color: var(--c-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .leg-kpi-val.is-hot { color: #B91C1C; }
 .leg-kpi-val.is-warn { color: #C2410C; }
-.leg-brief { margin: 8px 0 0; font-size: 11.5px; line-height: 1.4; color: var(--c-ink); }
 .leg-brief.is-muted { color: var(--c-muted); }
 .leg-layers { flex: 0 0 auto; display: flex; flex-direction: column; gap: 9px; padding: 11px 14px; }
 .leg-context { flex: 1 1 auto; display: flex; flex-direction: column; gap: 9px; padding: 10px 14px 11px; border-top: 1px solid var(--c-edge); background: var(--c-panel); }
@@ -186,7 +186,7 @@ export async function mount(el, ctx) {
     if (state.showPredictedOverlay) {
       const predCard = document.createElement('div');
       predCard.className = 'leg-card';
-      predCard.innerHTML = `<div class="leg-card-head"><span class="leg-card-title">3. Predicted Risk (${state.horizonYear})</span><span class="leg-card-tag">+${state.warmingPct}% stress</span></div><div class="leg-bar leg-bar--pred"></div><div class="leg-ticks"><span>Emerging</span><span>High</span><span>Critical</span></div><p class="leg-desc">Violet-amber rings mark projected hotspot persistence in Fig. 4.</p>`;
+      predCard.innerHTML = `<div class="leg-card-head"><span class="leg-card-title">3. Predicted Risk (${state.horizonYear})</span><span class="leg-card-tag">+${state.warmingPct}% stress</span></div><div class="leg-bar leg-bar--pred"></div><div class="leg-ticks"><span>Emerging</span><span>High</span><span>Critical</span></div><p class="leg-desc">Violet-amber rings mark projected hotspot persistence from the 2027–2035 outlook.</p>`;
       layers.appendChild(predCard);
     }
   }
@@ -312,14 +312,16 @@ export async function mount(el, ctx) {
 
     let statusClass = 'is-baseline';
     let statusLabel = 'Baseline';
-    if (loading && !yrRow) { statusClass = 'is-loading'; statusLabel = 'Loading CSV'; }
-    else if (!hasSpatialFires && !comparableTotal && !emYr) { statusClass = ''; statusLabel = 'Awaiting CSV'; }
+    if (loading && !yrRow) { statusClass = 'is-loading'; statusLabel = 'Loading'; }
+    else if (!hasSpatialFires && !comparableTotal && !emYr) { statusClass = ''; statusLabel = 'No Archive'; }
     else if ((p90Total && medTotal && p90Total > medTotal && comparableTotal >= p90Total && (emRatio === null || emRatio >= 0.85)) || (emRatio !== null && emRatio >= 1.75) || (isMajorEvent && (emRatio === null || emRatio >= 0.85)) || (peakDensity >= 4.0 && (relRatio === null || relRatio >= 0.95) && (emRatio === null || emRatio >= 0.95))) { statusClass = 'is-extreme'; statusLabel = 'Critical Surge'; }
     else if ((p75Total && medTotal && p75Total > medTotal && comparableTotal >= p75Total && (emRatio === null || emRatio >= 0.8)) || (emRatio !== null && emRatio >= 1.2) || (peakDensity >= 1.5 && (relRatio === null || relRatio >= 0.8) && (emRatio === null || emRatio >= 0.85))) { statusClass = 'is-elevated'; statusLabel = 'High Stress'; }
     else if ((relRatio !== null && relRatio >= 0.45) || (emRatio !== null && emRatio >= 0.45) || (hasSpatialFires && relRatio === null && emRatio === null)) { statusClass = 'is-moderate'; statusLabel = 'Active Season'; }
 
     badge.className = `leg-badge${statusClass ? ` ${statusClass}` : ''}`;
-    badge.textContent = statusLabel;
+    badge.innerHTML = (loading && !yrRow)
+      ? '<span class="ember-spinner ember-spinner--sm" aria-hidden="true"></span><span>Loading</span>'
+      : escHtml(statusLabel);
 
     const sensorTag = fs?.sensor || yrRow?.sensor || null;
     let detSub = sensorTag ? `${sensorTag} detections` : (emYr ? 'point CSV not archived' : 'mapped points');
@@ -352,7 +354,7 @@ export async function mount(el, ctx) {
     const topForestName = fs?.topForest?.name || yrRow?.topForests?.[0]?.name || emYr?.topForests?.[0]?.name;
     if (loading) {
       brief.className = 'leg-brief is-muted';
-      brief.textContent = `Streaming ${yr} fire detections for ${meta ? meta.shortName : state.countryId}…`;
+      brief.innerHTML = `<span class="ember-spinner ember-spinner--sm" aria-hidden="true"></span><span>Loading ${yr} detections for ${escHtml(meta ? meta.shortName : state.countryId)}…</span>`;
     } else if (!hasSpatialFires && !comparableTotal && !emYr) {
       brief.className = 'leg-brief is-muted';
       brief.innerHTML = `No fire CSV rows loaded for <strong>${escHtml(meta ? meta.shortName : state.countryId)}</strong>.`;

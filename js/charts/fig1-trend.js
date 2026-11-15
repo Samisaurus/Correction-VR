@@ -7,7 +7,7 @@ import { erfcApprox } from '../theme.js';
 const STYLE = `
 .f1-root { padding: 10px 12px 8px; }
 .f1-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; }
-.f1-title { font-family: var(--f-serif); font-size: 16px; font-weight: 700; margin: 0; color: var(--c-ink); }
+.f1-title { font-family: var(--f-serif); font-size: 17px; font-weight: 700; letter-spacing: -0.01em; margin: 0; color: var(--c-ink); }
 .f1-seg { display: inline-flex; border: 1px solid var(--c-edge); border-radius: 8px; overflow: hidden; background: var(--c-panel); padding: 2px; gap: 2px; }
 .f1-seg button {
   border: 0; border-radius: 6px; padding: 3px 10px; font-size: 12.5px; font-weight: 500;
@@ -112,7 +112,7 @@ export async function mount(el, ctx) {
   head.className = 'f1-head';
   const title = document.createElement('h3');
   title.className = 'f1-title';
-  title.textContent = 'Fig. 1 — Trend';
+  title.textContent = 'Historical Fire & Smoke Trend';
   const seg = document.createElement('div');
   seg.className = 'f1-seg';
   seg.setAttribute('role', 'group');
@@ -213,7 +213,7 @@ export async function mount(el, ctx) {
 
     const unit = theme.unitFor(focus);
     const [y0, y1] = meta.years || [2002, 2026];
-    cap.innerHTML = `<strong>Fig. 1</strong> — ${v.label}, ${meta.name}, ${y0}–${y1}. Thick line: Sen slope.`;
+    cap.innerHTML = `${v.label}, ${meta.name}, ${y0}–${y1}. Thick line: Sen trend slope.`;
     plotBox.innerHTML = '';
     stats.innerHTML = '';
     yearRuleState = null;
@@ -291,6 +291,7 @@ export async function mount(el, ctx) {
 
   async function build(state) {
     const my = ++token;
+    theme.spinner(plotBox, 'Loading historical trend…');
     const scope = await data.getScope(state);
     if (my !== token) return;
     current = scope && scope.meta ? scope : null;

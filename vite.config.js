@@ -280,6 +280,55 @@ export function buildDataManifest(dataRoot = path.resolve('data')) {
   }
 
   walk(dataRoot);
+
+  // Discover pre-indexed spatial grids when raw point CSVs are pruned from data/
+  const fireGridDir = path.join(dataRoot, 'fire-grid');
+  if (fs.existsSync(fireGridDir)) {
+    for (const ent of fs.readdirSync(fireGridDir, { withFileTypes: true })) {
+      if (!ent.isFile()) continue;
+      const m = ent.name.match(/^(canada|usa|russia)-((?:19|20)\d{2})\.json$/i);
+      if (!m) continue;
+      const scope = m[1].toLowerCase();
+      const year = Number(m[2]);
+      const bucket = ensure(scope);
+      const gridUrl = `./data/fire-grid/${ent.name}`;
+      if (!bucket.fires.some((f) => f.year === year)) {
+        let sensor = year >= 2012 ? 'viirs' : 'modis';
+        try {
+          const parsed = JSON.parse(fs.readFileSync(path.join(fireGridDir, ent.name), 'utf8'));
+          const s = String(parsed?.summary?.sensor || '').toLowerCase();
+          if (s.includes('viirs')) sensor = 'viirs';
+          else if (s.includes('modis')) sensor = 'modis';
+        } catch {
+          // keep inferred sensor
+        }
+        bucket.fires.push({ year, sensor, file: ent.name, gridUrl });
+      }
+    }
+    for (const bucket of Object.values(scopes)) {
+      bucket.fires.sort((a, b) => (a.year || 0) - (b.year || 0));
+    }
+  }
+
+  const airGridDir = path.join(dataRoot, 'air-grid');
+  if (fs.existsSync(airGridDir)) {
+    for (const ent of fs.readdirSync(airGridDir, { withFileTypes: true })) {
+      if (!ent.isFile()) continue;
+      const m = ent.name.match(/^(canada|usa|russia)-((?:19|20)\d{2})\.json$/i);
+      if (!m) continue;
+      const scope = m[1].toLowerCase();
+      const year = Number(m[2]);
+      const bucket = ensure(scope);
+      const gridUrl = `./data/air-grid/${ent.name}`;
+      if (!bucket.emissionsByYearFiles.some((f) => f.year === year)) {
+        bucket.emissionsByYearFiles.push({ year, file: ent.name, gridUrl });
+      }
+    }
+    for (const bucket of Object.values(scopes)) {
+      bucket.emissionsByYearFiles.sort((a, b) => (a.year || 0) - (b.year || 0));
+    }
+  }
+
   return { generatedAt: new Date().toISOString(), scopes };
 }
 
@@ -548,66 +597,78 @@ export function buildScopeIndex(dataRoot = path.resolve('data'), options = {}) {
       }
     };
 
+    const pickedByYear = new Map();
     for (const item of pickedFiles) {
-      const full = resolveFile(dataRoot, item.url);
-      if (!fs.existsSync(full)) continue;
-      const sensorLabel = item.sensor === 'viirs' ? 'VIIRS' : item.sensor === 'modis' ? 'MODIS' : null;
-      const buf = item.format === 'zip' ? readZipFirstCsvBuffer(full) : fs.readFileSync(full);
-      if (!buf) continue;
-      const buildGrid = writeGrids && Number.isInteger(item.year);
+      const yKey = Number.isInteger(item.year) ? item.year : 'all';
+      if (!pickedByYear.has(yKey)) pickedByYear.set(yKey, []);
+      pickedByYear.get(yKey).push(item);
+    }
+
+    for (const [yKey, itemsForYear] of Array.from(pickedByYear.entries()).sort((a, b) => Number(a[0]) - Number(b[0]))) {
+      const buildGrid = writeGrids && Number.isInteger(yKey);
       const cGrid = buildGrid ? new Map() : null;
+      let yearSensorLabel = null;
 
-      parseCsvBufferSync(buf, (cells, idx) => {
-        const col = (names) => {
-          for (const n of names) {
-            if (idx.has(n)) return idx.get(n);
+      for (const item of itemsForYear) {
+        const full = resolveFile(dataRoot, item.url);
+        if (!fs.existsSync(full)) continue;
+        const sensorLabel = item.sensor === 'viirs' ? 'VIIRS' : item.sensor === 'modis' ? 'MODIS' : null;
+        if (sensorLabel && !yearSensorLabel) yearSensorLabel = sensorLabel;
+        const buf = item.format === 'zip' ? readZipFirstCsvBuffer(full) : fs.readFileSync(full);
+        if (!buf) continue;
+
+        parseCsvBufferSync(buf, (cells, idx) => {
+          const col = (names) => {
+            for (const n of names) {
+              if (idx.has(n)) return idx.get(n);
+            }
+            return -1;
+          };
+          const iLat = col(['latitude', 'lat']);
+          const iLon = col(['longitude', 'lon', 'lng']);
+          if (iLat < 0 || iLon < 0) return;
+          const lat = Number(cells[iLat]);
+          const lon = Number(cells[iLon]);
+          if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+
+          const iYr = col(['year', 'acq_year']);
+          const iDate = col(['acq_date', 'date']);
+          const iMo = col(['month']);
+          const iFrp = col(['frp_mw', 'frp', 'frp_sum']);
+          const iFrpCls = col(['frp_class']);
+          const iNf = col(['in_national_forest']);
+          const iSat = col(['satellite']);
+          const iDn = col(['day_night']);
+          const iSt = col(['state', 'province', 'region']);
+          const iFo = col(['forest_name', 'forest']);
+
+          const rawDate = iDate >= 0 ? (cells[iDate] || '').trim() : '';
+          let yr = iYr >= 0 ? Number(cells[iYr]) : NaN;
+          if (!Number.isInteger(yr) && rawDate.length >= 4) yr = Number(rawDate.slice(0, 4));
+          if (!Number.isInteger(yr)) yr = item.year;
+          if (!Number.isInteger(yr)) return;
+
+          let ym = null;
+          if (rawDate.length >= 7 && rawDate[4] === '-') {
+            ym = rawDate.slice(0, 7);
+          } else if (iMo >= 0) {
+            const m = Number(cells[iMo]);
+            if (Number.isInteger(m) && m >= 1 && m <= 12) ym = `${yr}-${String(m).padStart(2, '0')}`;
           }
-          return -1;
-        };
-        const iLat = col(['latitude', 'lat']);
-        const iLon = col(['longitude', 'lon', 'lng']);
-        if (iLat < 0 || iLon < 0) return;
-        const lat = Number(cells[iLat]);
-        const lon = Number(cells[iLon]);
-        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
 
-        const iYr = col(['year', 'acq_year']);
-        const iDate = col(['acq_date', 'date']);
-        const iMo = col(['month']);
-        const iFrp = col(['frp_mw', 'frp', 'frp_sum']);
-        const iFrpCls = col(['frp_class']);
-        const iNf = col(['in_national_forest']);
-        const iSat = col(['satellite']);
-        const iDn = col(['day_night']);
-        const iSt = col(['state', 'province', 'region']);
-        const iFo = col(['forest_name', 'forest']);
+          const frp = iFrp >= 0 ? (Number(cells[iFrp]) || 0) : 0;
+          const frpClass = iFrpCls >= 0 ? (cells[iFrpCls] || '').trim().toLowerCase() : '';
+          const inNf = iNf >= 0 ? (cells[iNf] || '').trim().toLowerCase() === 'true' : false;
+          const sat = iSat >= 0 ? (cells[iSat] || '').trim().toLowerCase() : '';
+          const dn = iDn >= 0 ? (cells[iDn] || '').trim().toLowerCase() : '';
+          const stateName = iSt >= 0 ? (cells[iSt] || '').trim() : '';
+          const forestName = iFo >= 0 ? (cells[iFo] || '').trim() : '';
+          const dateStr = rawDate || `${yr}-07-01`;
 
-        const rawDate = iDate >= 0 ? (cells[iDate] || '').trim() : '';
-        let yr = iYr >= 0 ? Number(cells[iYr]) : NaN;
-        if (!Number.isInteger(yr) && rawDate.length >= 4) yr = Number(rawDate.slice(0, 4));
-        if (!Number.isInteger(yr)) yr = item.year;
-        if (!Number.isInteger(yr)) return;
-
-        let ym = null;
-        if (rawDate.length >= 7 && rawDate[4] === '-') {
-          ym = rawDate.slice(0, 7);
-        } else if (iMo >= 0) {
-          const m = Number(cells[iMo]);
-          if (Number.isInteger(m) && m >= 1 && m <= 12) ym = `${yr}-${String(m).padStart(2, '0')}`;
-        }
-
-        const frp = iFrp >= 0 ? (Number(cells[iFrp]) || 0) : 0;
-        const frpClass = iFrpCls >= 0 ? (cells[iFrpCls] || '').trim().toLowerCase() : '';
-        const inNf = iNf >= 0 ? (cells[iNf] || '').trim().toLowerCase() === 'true' : false;
-        const sat = iSat >= 0 ? (cells[iSat] || '').trim().toLowerCase() : '';
-        const dn = iDn >= 0 ? (cells[iDn] || '').trim().toLowerCase() : '';
-        const stateName = iSt >= 0 ? (cells[iSt] || '').trim() : '';
-        const forestName = iFo >= 0 ? (cells[iFo] || '').trim() : '';
-        const dateStr = rawDate || `${yr}-07-01`;
-
-        ingestRow(countryAcc, yr, ym, frp, frpClass, inNf, sat, dn, stateName, forestName, sensorLabel);
-        if (cGrid) addGridPoint(cGrid, 0.2, lat, lon, frp, frpClass === 'high', dateStr, stateName, forestName);
-      });
+          ingestRow(countryAcc, yr, ym, frp, frpClass, inNf, sat, dn, stateName, forestName, sensorLabel);
+          if (cGrid) addGridPoint(cGrid, 0.2, lat, lon, frp, frpClass === 'high', dateStr, stateName, forestName);
+        });
+      }
 
       if (cGrid && cGrid.size) {
         const gridDir = path.join(dataRoot, 'fire-grid');
@@ -615,9 +676,9 @@ export function buildScopeIndex(dataRoot = path.resolve('data'), options = {}) {
         const fc = {
           type: 'FeatureCollection',
           scope: scopeKey,
-          year: item.year,
+          year: yKey,
           gridDeg: 0.2,
-          summary: { sensor: sensorLabel },
+          summary: { sensor: yearSensorLabel },
           features: Array.from(cGrid.values()).map((it) => ({
             type: 'Feature',
             geometry: { type: 'Point', coordinates: [it.lon, it.lat] },
@@ -633,7 +694,7 @@ export function buildScopeIndex(dataRoot = path.resolve('data'), options = {}) {
             },
           })),
         };
-        fs.writeFileSync(path.join(gridDir, `${scopeKey}-${item.year}.json`), JSON.stringify(fc));
+        fs.writeFileSync(path.join(gridDir, `${scopeKey}-${yKey}.json`), JSON.stringify(fc));
       }
     }
 
@@ -1160,12 +1221,19 @@ export function buildScopeIndex(dataRoot = path.resolve('data'), options = {}) {
               : (fb ? fb.topForests : []),
             topNationalForests: [],
           };
-        } else if (finalizedCountry.years[row.year] && fb) {
-          finalizedCountry.years[row.year].hasSpatialGrid = true;
-          finalizedCountry.years[row.year].summaryOnly = false;
-          finalizedCountry.years[row.year].pointsSource = 'MODIS (GFAS locs)';
-          if (!finalizedCountry.years[row.year].viirsTotal && row.viirsTotal) finalizedCountry.years[row.year].viirsTotal = row.viirsTotal;
-          if (!finalizedCountry.years[row.year].topStates?.length) finalizedCountry.years[row.year].topStates = fb.topStates;
+        } else if (finalizedCountry.years[row.year]) {
+          if (row.modisTotal > 0 && !finalizedCountry.years[row.year].modisTotal) {
+            finalizedCountry.years[row.year].modisTotal = row.modisTotal;
+          }
+          if (row.viirsTotal > 0 && !finalizedCountry.years[row.year].viirsTotal) {
+            finalizedCountry.years[row.year].viirsTotal = row.viirsTotal;
+          }
+          if (fb) {
+            finalizedCountry.years[row.year].hasSpatialGrid = true;
+            finalizedCountry.years[row.year].summaryOnly = false;
+            finalizedCountry.years[row.year].pointsSource = 'MODIS (GFAS locs)';
+            if (!finalizedCountry.years[row.year].topStates?.length) finalizedCountry.years[row.year].topStates = fb.topStates;
+          }
         }
       }
       if (modisMap.size) {
@@ -1196,16 +1264,35 @@ export function buildScopeIndex(dataRoot = path.resolve('data'), options = {}) {
   return { generatedAt: new Date().toISOString(), scopes };
 }
 
+function hasRawArchiveSources(dataRoot) {
+  for (const sc of ['canada', 'usa', 'russia']) {
+    const dir = path.join(dataRoot, sc);
+    if (!fs.existsSync(dir)) continue;
+    const stack = [dir];
+    while (stack.length) {
+      const cur = stack.pop();
+      for (const ent of fs.readdirSync(cur, { withFileTypes: true })) {
+        if (ent.isDirectory()) stack.push(path.join(cur, ent.name));
+        else if (ent.isFile() && /\.(csv|zip|xlsx)$/i.test(ent.name) && !/^(series|air|fires)\.csv$/i.test(ent.name)) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
 function dataPipelinePlugin() {
   let cachedScopeIndexJson = null;
 
   const getScopeIndexJson = (preferDisk = false) => {
     if (!cachedScopeIndexJson) {
+      const src = path.resolve('data');
       const diskPath = path.resolve('data/scope-index.json');
-      if (preferDisk && fs.existsSync(diskPath)) {
+      if (fs.existsSync(diskPath) && (preferDisk || !hasRawArchiveSources(src))) {
         cachedScopeIndexJson = fs.readFileSync(diskPath, 'utf8');
       } else {
-        cachedScopeIndexJson = JSON.stringify(buildScopeIndex(path.resolve('data'), { writeGrids: true }));
+        cachedScopeIndexJson = JSON.stringify(buildScopeIndex(src, { writeGrids: true }));
       }
     }
     return cachedScopeIndexJson;
@@ -1217,10 +1304,11 @@ function dataPipelinePlugin() {
       server.middlewares.use((req, res, next) => {
         const cleanUrl = (req.url || '').split('?')[0];
         if (cleanUrl === '/data/manifest.json') {
+          const src = path.resolve('data');
           const manifestPath = path.resolve('data/manifest.json');
           const out = fs.existsSync(manifestPath)
             ? fs.readFileSync(manifestPath, 'utf8')
-            : JSON.stringify(buildDataManifest(path.resolve('data')));
+            : JSON.stringify(buildDataManifest(src));
           res.setHeader('Content-Type', 'application/json; charset=utf-8');
           res.setHeader('Cache-Control', 'no-store');
           res.end(out);
@@ -1239,11 +1327,15 @@ function dataPipelinePlugin() {
       const src = path.resolve('data');
       const dest = path.resolve('dist/data');
       if (fs.existsSync(src)) {
-        cachedScopeIndexJson = null;
-        const scopeIndexJson = getScopeIndexJson(false);
-        const manifestJson = JSON.stringify(buildDataManifest(src));
-        fs.writeFileSync(path.join(src, 'manifest.json'), manifestJson);
-        fs.writeFileSync(path.join(src, 'scope-index.json'), scopeIndexJson);
+        if (hasRawArchiveSources(src)) {
+          cachedScopeIndexJson = null;
+          const scopeIndexJson = getScopeIndexJson(false);
+          const manifestJson = JSON.stringify(buildDataManifest(src));
+          fs.writeFileSync(path.join(src, 'manifest.json'), manifestJson);
+          fs.writeFileSync(path.join(src, 'scope-index.json'), scopeIndexJson);
+        } else if (!fs.existsSync(path.join(src, 'manifest.json'))) {
+          fs.writeFileSync(path.join(src, 'manifest.json'), JSON.stringify(buildDataManifest(src)));
+        }
         fs.cpSync(src, dest, { recursive: true });
       }
     },

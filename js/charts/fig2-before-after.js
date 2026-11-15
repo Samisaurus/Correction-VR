@@ -6,7 +6,7 @@ import * as Plot from 'https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6/+esm'
 const STYLE = `
 .f2-root { padding: 10px 12px 8px; }
 .f2-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; }
-.f2-title { font-family: var(--f-serif); font-size: 16px; font-weight: 700; margin: 0; color: var(--c-ink); }
+.f2-title { font-family: var(--f-serif); font-size: 17px; font-weight: 700; letter-spacing: -0.01em; margin: 0; color: var(--c-ink); }
 .f2-chips { display: flex; flex-wrap: wrap; gap: 5px; }
 .f2-chip {
   padding: 2px 9px; font-family: var(--f-mono); font-size: 12px; font-weight: 500;
@@ -43,7 +43,7 @@ export async function mount(el, ctx) {
   head.className = 'f2-head';
   const title = document.createElement('h3');
   title.className = 'f2-title';
-  title.textContent = 'Fig. 2 — Before / after a fire year';
+  title.textContent = 'Before vs. After Fire-Year Comparison';
   const chips = document.createElement('div');
   chips.className = 'f2-chips';
   chips.setAttribute('aria-label', 'Fire years');
@@ -86,7 +86,7 @@ export async function mount(el, ctx) {
       stats.innerHTML = '';
       chips.innerHTML = '';
       theme.placeholder(plotBox);
-      cap.textContent = `Fig. 2 — no before / after test available for ${meta.name}.`;
+      cap.textContent = `No before / after test available for ${meta.name}.`;
       return;
     }
 
@@ -152,11 +152,12 @@ export async function mount(el, ctx) {
     stats.innerHTML = `<strong>Welch t</strong> = ${entry.welch_t.toFixed(2)} · <strong>df</strong> = ${entry.df.toFixed(1)} · ${theme.fmtP(entry.p)} · <strong>d</strong> = ${entry.cohens_d.toFixed(2)} `
       + `· <strong>Mann-Whitney</strong> ${theme.fmtP(entry.mannwhitney_p)} · n = ${entry.n_before}/${entry.n_after}<br>`
       + `<span class="f2-verdict${sig ? '' : ' is-muted'}">${sig ? 'Different (p &lt; 0.05)' : 'No clear difference'}</span>`;
-    cap.innerHTML = `<strong>Fig. 2</strong> — ${v.label}, May–Sep, before vs ${during ? 'during' : 'after'} the <strong>${entry.event}</strong> fire season, ${meta.name}. Dots: monthly values. Bars: means.`;
+    cap.innerHTML = `${v.label}, May–Sep, before vs ${during ? 'during' : 'after'} the <strong>${entry.event}</strong> fire season, ${meta.name}. Dots: monthly values. Bars: means.`;
   }
 
   async function build(state) {
     const my = ++token;
+    theme.spinner(plotBox, 'Loading comparison…');
     const scope = await data.getScope(state);
     if (my !== token) return;
     current = scope && scope.meta ? scope : null;

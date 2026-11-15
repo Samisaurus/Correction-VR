@@ -1,16 +1,32 @@
 // js/charts/fig4-outlook.js
-// Purpose: Fig. 4 (#outlook) — Wildfire Horizon & Interactive AI Trend Setter beneath Fig. 3.
-//          Combines Theil-Sen statistical momentum, 2027-2035 horizon toggles, warming stress slider,
-//          predicted globe hotspot rings, and conversational Gemini AI analysis (/api/forecast & /api/ask).
+// Purpose: Wildfire Outlook & AI Analyst (#outlook) — 2027-2035 scenario forecast,
+//          standout Gemini conversational AI panel, and Methodology & Data Used tab.
 
 import { HORIZONS, buildDeterministicAnswer, buildDeterministicBrief, computeForecast, summarizeScopeContext } from '../forecast.js';
 
 const STYLE = `
-.f4-root { padding: 14px 18px 13px; display: flex; flex-direction: column; gap: 11px; }
-.f4-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
+.f4-root { padding: 14px 18px 14px; display: flex; flex-direction: column; gap: 12px; }
+.f4-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 14px; }
 .f4-title-wrap { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.f4-title { font-family: var(--f-serif); font-size: 16px; font-weight: 700; margin: 0; color: var(--c-ink); }
+.f4-title { font-family: var(--f-serif); font-size: 17px; font-weight: 700; letter-spacing: -0.01em; margin: 0; color: var(--c-ink); }
 .f4-sub { font-family: var(--f-mono); font-size: 11px; color: var(--c-muted); font-variant-numeric: tabular-nums; }
+.f4-head-right { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+.f4-view-tabs {
+  display: inline-flex; padding: 2px; gap: 2px;
+  background: var(--c-panel); border: 1px solid var(--c-edge); border-radius: 7px;
+}
+.f4-view-tab {
+  border: 1px solid transparent; border-radius: 5px; padding: 4px 11px;
+  font-family: var(--f-sans); font-size: 12px; font-weight: 600;
+  color: var(--c-muted); background: transparent; line-height: 1.25;
+}
+.f4-view-tab:hover:not([aria-selected="true"]) { color: var(--c-ink); background: rgba(255, 255, 255, 0.75); }
+.f4-view-tab[aria-selected="true"] {
+  color: var(--c-ink); background: var(--c-paper); border-color: var(--c-edge-hover);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
 .f4-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .f4-seg {
   display: inline-flex; padding: 2px; gap: 2px;
@@ -26,6 +42,7 @@ const STYLE = `
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
 }
 .f4-btn {
+  display: inline-flex; align-items: center; gap: 6px;
   border: 1px solid var(--c-edge); border-radius: 6px; padding: 4px 10px;
   font-size: 11.5px; font-weight: 600; color: var(--c-ink); background: var(--c-paper);
   line-height: 1.25;
@@ -35,10 +52,14 @@ const STYLE = `
 }
 .f4-btn--ghost { color: var(--c-muted); background: var(--c-panel); }
 .f4-btn--ghost:hover:not([disabled]) { color: var(--c-ink); }
+.f4-btn[disabled] { opacity: 0.72; cursor: wait; }
+
+.f4-tab-pane[hidden] { display: none; }
+.f4-forecast-pane { display: flex; flex-direction: column; gap: 11px; }
 
 .f4-scenario {
   display: grid; grid-template-columns: minmax(0, 1.35fr) repeat(3, minmax(0, 1fr)); gap: 8px;
-  padding: 9px 11px; background: var(--c-panel); border: 1px solid var(--c-edge); border-radius: 5px;
+  padding: 9px 11px; background: var(--c-panel); border: 1px solid var(--c-edge); border-radius: 6px;
   align-items: center;
 }
 .f4-slider-wrap { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding-right: 6px; }
@@ -47,7 +68,7 @@ const STYLE = `
 .f4-slider-val { font-family: var(--f-mono); font-weight: 700; color: #B45309; font-variant-numeric: tabular-nums; }
 .f4-range { width: 100%; accent-color: #6A3093; margin: 0; cursor: pointer; }
 .f4-kpi {
-  background: var(--c-paper); border: 1px solid var(--c-edge); border-radius: 4px;
+  background: var(--c-paper); border: 1px solid var(--c-edge); border-radius: 5px;
   padding: 5px 8px; min-width: 0;
 }
 .f4-kpi-k { display: block; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-muted); }
@@ -55,27 +76,27 @@ const STYLE = `
 .f4-kpi-v.is-purple { color: #6A3093; }
 .f4-kpi-v.is-warn { color: #B45309; }
 
-.f4-grid { display: grid; grid-template-columns: minmax(0, 0.96fr) minmax(0, 1.04fr); gap: 12px; align-items: stretch; }
+.f4-grid { display: grid; grid-template-columns: minmax(0, 0.94fr) minmax(0, 1.06fr); gap: 12px; align-items: stretch; }
 .f4-panel {
-  border: 1px solid var(--c-edge); border-radius: 5px; background: var(--c-paper);
-  padding: 9px 11px; display: flex; flex-direction: column; gap: 8px; min-width: 0;
+  border: 1px solid var(--c-edge); border-radius: 6px; background: var(--c-paper);
+  padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0;
 }
 .f4-panel-head {
-  display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
-  padding-bottom: 5px; border-bottom: 1px solid var(--c-edge);
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  padding-bottom: 6px; border-bottom: 1px solid var(--c-edge);
 }
 .f4-panel-title { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--c-ink); }
-.f4-panel-meta { font-family: var(--f-mono); font-size: 10px; color: var(--c-muted); }
+.f4-panel-meta { display: inline-flex; align-items: center; gap: 5px; font-family: var(--f-mono); font-size: 10px; color: var(--c-muted); }
 .f4-svg { display: block; width: 100%; height: auto; }
 .f4-zones { display: flex; flex-direction: column; gap: 5px; }
 .f4-zone { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; align-items: center; font-size: 11.5px; }
 .f4-zone-name { font-weight: 600; color: var(--c-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .f4-zone-meta { font-family: var(--f-mono); font-size: 10.5px; font-variant-numeric: tabular-nums; color: #6A3093; font-weight: 700; }
-.f4-zone-bar { grid-column: 1 / -1; height: 3.5px; border-radius: 2px; background: #E2E8F0; overflow: hidden; }
+.f4-zone-bar { grid-column: 1 / -1; height: 4px; border-radius: 2px; background: #E2E8F0; overflow: hidden; }
 .f4-zone-fill { height: 100%; background: linear-gradient(90deg, #6A3093, #D55E00); border-radius: 2px; }
 
-.f4-ai-head { margin: 0; font-family: var(--f-serif); font-size: 14px; font-weight: 700; color: var(--c-ink); line-height: 1.3; }
-.f4-ai-body { margin: 0; font-size: 12.5px; line-height: 1.48; color: var(--c-ink); }
+.f4-ai-head { margin: 0; font-family: var(--f-serif); font-size: 14.5px; font-weight: 700; color: var(--c-ink); line-height: 1.3; }
+.f4-ai-body { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--c-ink); }
 .f4-ai-drivers { display: flex; flex-direction: column; gap: 4px; }
 .f4-driver {
   font-size: 11px; line-height: 1.35; padding: 4px 7px;
@@ -85,51 +106,100 @@ const STYLE = `
 .f4-ai-smoke { margin: 0; padding-top: 5px; border-top: 1px dashed var(--c-edge); font-size: 11.5px; line-height: 1.42; color: var(--c-muted); }
 .f4-ai-smoke strong { color: var(--c-ink); }
 
-.f4-ask-box {
-  margin-top: auto; padding-top: 8px; border-top: 1px solid var(--c-edge);
-  display: flex; flex-direction: column; gap: 6px;
+/* Standout Ask AI Card */
+.f4-ask-card {
+  margin-top: 2px;
+  border: 1.5px solid #C4B5FD;
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(106, 48, 147, 0.055) 0%, rgba(213, 94, 0, 0.04) 100%);
+  padding: 11px 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: 0 2px 10px rgba(106, 48, 147, 0.07);
 }
-.f4-prompts { display: flex; flex-wrap: wrap; gap: 4px; }
+.f4-ask-top {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px;
+}
+.f4-ask-brand { display: inline-flex; align-items: center; gap: 7px; }
+.f4-ask-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; border-radius: 6px;
+  background: linear-gradient(135deg, #6A3093, #D55E00); color: #FFFFFF;
+}
+.f4-ask-title { font-family: var(--f-serif); font-size: 14.5px; font-weight: 700; color: var(--c-ink); margin: 0; }
+.f4-ask-tag {
+  font-family: var(--f-mono); font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 4px; background: rgba(106, 48, 147, 0.12); color: #581C87;
+}
+.f4-prompts { display: flex; flex-wrap: wrap; gap: 5px; }
 .f4-prompt-btn {
-  padding: 2px 7px; border-radius: 4px; border: 1px solid var(--c-edge); background: var(--c-panel);
-  font-family: var(--f-sans); font-size: 10.5px; font-weight: 500; color: var(--c-muted);
+  padding: 3px 9px; border-radius: 5px; border: 1px solid #DDD6FE; background: var(--c-paper);
+  font-family: var(--f-sans); font-size: 11px; font-weight: 600; color: #4C1D95;
+  transition: background-color 140ms var(--ease-out), border-color 140ms var(--ease-out);
 }
-.f4-prompt-btn:hover { color: var(--c-ink); border-color: #6A3093; background: var(--c-paper); }
+.f4-prompt-btn:hover { color: #FFFFFF; border-color: #6A3093; background: #6A3093; }
 .f4-chat-log {
-  max-height: 142px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px;
-  padding: 6px 8px; background: var(--c-panel); border: 1px solid var(--c-edge); border-radius: 5px;
+  max-height: 170px; overflow-y: auto; display: flex; flex-direction: column; gap: 7px;
+  padding: 8px 10px; background: var(--c-paper); border: 1px solid var(--c-edge); border-radius: 6px;
 }
 .f4-chat-log[hidden] { display: none; }
-.f4-msg { display: flex; flex-direction: column; gap: 3px; font-size: 11.5px; line-height: 1.44; }
-.f4-msg + .f4-msg { padding-top: 6px; border-top: 1px dashed var(--c-edge); }
-.f4-msg-q { font-family: var(--f-mono); font-size: 10.5px; font-weight: 600; color: #6A3093; }
+.f4-msg { display: flex; flex-direction: column; gap: 3px; font-size: 12px; line-height: 1.46; }
+.f4-msg + .f4-msg { padding-top: 7px; border-top: 1px dashed var(--c-edge); }
+.f4-msg-q { font-family: var(--f-mono); font-size: 11px; font-weight: 700; color: #6A3093; }
 .f4-msg-a { color: var(--c-ink); }
 .f4-msg-meta { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; font-family: var(--f-mono); font-size: 10px; color: var(--c-muted); }
 .f4-apply-btn {
   padding: 2px 8px; border-radius: 4px; border: 1px solid #6A3093; background: #6A3093;
   color: #FFFFFF; font-family: var(--f-mono); font-size: 10px; font-weight: 600;
 }
-.f4-ask-form { display: flex; gap: 6px; align-items: stretch; }
+.f4-ask-form { display: flex; gap: 7px; align-items: stretch; }
 .f4-ask-input {
-  flex: 1 1 auto; min-width: 0; padding: 5px 9px; border: 1px solid var(--c-edge); border-radius: 5px;
-  background: var(--c-paper); font-family: var(--f-sans); font-size: 12px; color: var(--c-ink);
+  flex: 1 1 auto; min-width: 0; padding: 7px 11px; border: 1.5px solid #CBD5E1; border-radius: 6px;
+  background: var(--c-paper); font-family: var(--f-sans); font-size: 12.5px; color: var(--c-ink);
 }
 .f4-ask-input:focus { outline: 2px solid #6A3093; outline-offset: -1px; border-color: #6A3093; }
 .f4-ask-submit {
-  flex: 0 0 auto; padding: 5px 12px; border-radius: 5px; border: 1px solid #6A3093;
-  background: #6A3093; color: #FFFFFF; font-size: 11.5px; font-weight: 600;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  flex: 0 0 auto; padding: 7px 15px; border-radius: 6px; border: 1px solid #6A3093;
+  background: linear-gradient(135deg, #6A3093, #5B21B6); color: #FFFFFF; font-size: 12.5px; font-weight: 700;
+  box-shadow: 0 2px 6px rgba(106, 48, 147, 0.22);
 }
-.f4-ask-submit:hover:not([disabled]) { background: #58257A; border-color: #58257A; }
+.f4-ask-submit:hover:not([disabled]) { filter: brightness(1.06); }
+.f4-ask-submit[disabled] { opacity: 0.78; cursor: wait; }
+
+/* Methodology & Data Used Tab */
+.f4-meth-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.f4-meth-card {
+  border: 1px solid var(--c-edge); border-radius: 6px; background: var(--c-panel);
+  padding: 11px 13px; display: flex; flex-direction: column; gap: 6px; min-width: 0;
+}
+.f4-meth-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.f4-meth-title { font-family: var(--f-serif); font-size: 14px; font-weight: 700; color: var(--c-ink); margin: 0; }
+.f4-meth-badge {
+  font-family: var(--f-mono); font-size: 10px; font-weight: 700; color: #6A3093;
+  background: rgba(106, 48, 147, 0.09); border-radius: 4px; padding: 2px 6px; white-space: nowrap;
+}
+.f4-meth-body { margin: 0; font-size: 12px; line-height: 1.5; color: var(--c-ink); }
+.f4-meth-list { margin: 0; padding-left: 16px; display: flex; flex-direction: column; gap: 3px; font-size: 11.5px; line-height: 1.44; color: var(--c-muted); }
+.f4-meth-list strong { color: var(--c-ink); }
+.f4-meth-formula {
+  font-family: var(--f-mono); font-size: 11px; color: var(--c-ink);
+  background: var(--c-paper); border: 1px solid var(--c-edge); border-radius: 4px;
+  padding: 6px 8px; overflow-x: auto;
+}
+
 .f4-cap { font-size: 11.5px; font-style: italic; color: var(--c-muted); margin: 0; }
 
 @media (max-width: 899px) {
   .f4-scenario { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .f4-slider-wrap { grid-column: 1 / -1; }
-  .f4-grid { grid-template-columns: 1fr; }
+  .f4-grid, .f4-meth-grid { grid-template-columns: 1fr; }
 }
 `;
 
 const NS = 'http://www.w3.org/2000/svg';
+const SPARK_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 5.8L19.5 11l-5.6 2.2L12 19l-1.9-5.8L4.5 11l5.6-2.2z"/></svg>';
 
 function renderTrajectorySvg(forecast, fmtCompactTick) {
   const pts = forecast.trajectory || [];
@@ -178,19 +248,30 @@ function renderTrajectorySvg(forecast, fmtCompactTick) {
 
 export async function mount(el, ctx) {
   const { store, data, theme } = ctx;
-  const { injectCss, escHtml, fmtCompact, fmtCompactTick, fmtMass } = theme;
+  const { injectCss, escHtml, fmtCompact, fmtCompactTick, fmtMass, spinner } = theme;
   injectCss('f4', STYLE);
 
-  el.innerHTML = '';
+  spinner(el, 'Loading forecast & AI analyst…');
+
+  let activeTab = 'forecast';
   const root = document.createElement('div');
   root.className = 'f4-root';
 
   root.innerHTML = `
     <div class="f4-head">
       <div class="f4-title-wrap">
-        <h3 class="f4-title">Fig. 4 — Wildfire Horizon &amp; Interactive AI Analyst</h3>
-        <span class="f4-sub" data-ref="sub">Theil-Sen statistical projection + Gemini conversational lab</span>
+        <h3 class="f4-title">2027–2035 Wildfire Outlook &amp; AI Analyst</h3>
+        <span class="f4-sub" data-ref="sub">Theil-Sen statistical momentum + interactive scenario analysis</span>
       </div>
+      <div class="f4-head-right">
+        <div class="f4-view-tabs" role="tablist" aria-label="Outlook panels">
+          <button type="button" class="f4-view-tab" role="tab" data-view="forecast" aria-selected="true">Forecast &amp; Scenarios</button>
+          <button type="button" class="f4-view-tab" role="tab" data-view="methodology" aria-selected="false">Methodology &amp; Data Used</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="f4-tab-pane f4-forecast-pane" data-pane="forecast">
       <div class="f4-controls">
         <div class="f4-seg" role="group" aria-label="Forecast horizon">
           ${HORIZONS.map((y) => `<button type="button" data-horizon="${y}" aria-pressed="false">${y}</button>`).join('')}
@@ -198,61 +279,72 @@ export async function mount(el, ctx) {
         <button type="button" class="f4-btn" data-ref="overlayBtn" aria-pressed="false">Show Predicted Zones</button>
         <button type="button" class="f4-btn f4-btn--ghost" data-ref="aiBtn">Refresh AI Brief</button>
       </div>
-    </div>
-    <div class="f4-scenario">
-      <label class="f4-slider-wrap">
-        <span class="f4-slider-head">
-          <span class="f4-slider-lbl">Dry-Season &amp; Warming Stress</span>
-          <span class="f4-slider-val" data-ref="stressVal">+15%</span>
-        </span>
-        <input class="f4-range" type="range" min="0" max="40" step="5" value="15" data-ref="stressInput" aria-label="Dry-season warming stress scenario percentage">
-      </label>
-      <div class="f4-kpi">
-        <span class="f4-kpi-k">Projected FRP</span>
-        <span class="f4-kpi-v is-warn" data-ref="kpiFrp">—</span>
-      </div>
-      <div class="f4-kpi">
-        <span class="f4-kpi-k">Est. CO₂ Pulse</span>
-        <span class="f4-kpi-v" data-ref="kpiCo2">—</span>
-      </div>
-      <div class="f4-kpi">
-        <span class="f4-kpi-k">Smoke Plume Risk</span>
-        <span class="f4-kpi-v is-purple" data-ref="kpiRisk">—</span>
-      </div>
-    </div>
-    <div class="f4-grid">
-      <div class="f4-panel">
-        <div class="f4-panel-head">
-          <span class="f4-panel-title">Trajectory &amp; Priority Corridors</span>
-          <span class="f4-panel-meta" data-ref="trajMeta">MW · uncertainty fan</span>
+      <div class="f4-scenario">
+        <label class="f4-slider-wrap">
+          <span class="f4-slider-head">
+            <span class="f4-slider-lbl">Dry-Season &amp; Warming Stress</span>
+            <span class="f4-slider-val" data-ref="stressVal">+15%</span>
+          </span>
+          <input class="f4-range" type="range" min="0" max="40" step="5" value="15" data-ref="stressInput" aria-label="Dry-season warming stress scenario percentage">
+        </label>
+        <div class="f4-kpi">
+          <span class="f4-kpi-k">Projected FRP</span>
+          <span class="f4-kpi-v is-warn" data-ref="kpiFrp">—</span>
         </div>
-        <div data-ref="trajChart"></div>
-        <div class="f4-zones" data-ref="zones"></div>
-      </div>
-      <div class="f4-panel">
-        <div class="f4-panel-head">
-          <span class="f4-panel-title">Predictive Synthesis &amp; Field Q&amp;A</span>
-          <span class="f4-panel-meta" data-ref="aiSource">Trend model</span>
+        <div class="f4-kpi">
+          <span class="f4-kpi-k">Est. CO₂ Pulse</span>
+          <span class="f4-kpi-v" data-ref="kpiCo2">—</span>
         </div>
-        <h4 class="f4-ai-head" data-ref="aiHeadline">—</h4>
-        <p class="f4-ai-body" data-ref="aiBody"></p>
-        <div class="f4-ai-drivers" data-ref="aiDrivers"></div>
-        <p class="f4-ai-smoke" data-ref="aiSmoke"></p>
-        <div class="f4-ask-box">
-          <div class="f4-prompts" data-ref="prompts"></div>
-          <div class="f4-chat-log" data-ref="chatLog" hidden></div>
-          <form class="f4-ask-form" data-ref="askForm">
-            <input class="f4-ask-input" type="text" data-ref="askInput" placeholder="Ask about a fire spike, smoke corridor, or +35% in 2035…" aria-label="Ask Wildfire Analyst">
-            <button class="f4-ask-submit" type="submit" data-ref="askSubmit">Ask AI</button>
-          </form>
+        <div class="f4-kpi">
+          <span class="f4-kpi-k">Smoke Plume Risk</span>
+          <span class="f4-kpi-v is-purple" data-ref="kpiRisk">—</span>
         </div>
       </div>
+      <div class="f4-grid">
+        <div class="f4-panel">
+          <div class="f4-panel-head">
+            <span class="f4-panel-title">Trajectory &amp; Priority Corridors</span>
+            <span class="f4-panel-meta" data-ref="trajMeta">MW · uncertainty fan</span>
+          </div>
+          <div data-ref="trajChart"></div>
+          <div class="f4-zones" data-ref="zones"></div>
+        </div>
+        <div class="f4-panel">
+          <div class="f4-panel-head">
+            <span class="f4-panel-title">Predictive Synthesis</span>
+            <span class="f4-panel-meta" data-ref="aiSource">Trend model</span>
+          </div>
+          <h4 class="f4-ai-head" data-ref="aiHeadline">—</h4>
+          <p class="f4-ai-body" data-ref="aiBody"></p>
+          <div class="f4-ai-drivers" data-ref="aiDrivers"></div>
+          <p class="f4-ai-smoke" data-ref="aiSmoke"></p>
+        </div>
+      </div>
+
+      <div class="f4-ask-card">
+        <div class="f4-ask-top">
+          <div class="f4-ask-brand">
+            <span class="f4-ask-icon">${SPARK_ICON}</span>
+            <h4 class="f4-ask-title">Ask Ember AI Analyst</h4>
+          </div>
+          <span class="f4-ask-tag">Grounded in 2002–2026 Archive + Scenarios</span>
+        </div>
+        <div class="f4-prompts" data-ref="prompts"></div>
+        <div class="f4-chat-log" data-ref="chatLog" hidden></div>
+        <form class="f4-ask-form" data-ref="askForm">
+          <input class="f4-ask-input" type="text" data-ref="askInput" placeholder="Ask about a fire spike, smoke corridor, or +35% in 2035…" aria-label="Ask Wildfire Analyst">
+          <button class="f4-ask-submit" type="submit" data-ref="askSubmit">Ask AI</button>
+        </form>
+      </div>
+      <p class="f4-cap" data-ref="cap"></p>
     </div>
-    <p class="f4-cap" data-ref="cap"></p>
+
+    <div class="f4-tab-pane" data-pane="methodology" hidden data-ref="methodologyPane"></div>
   `;
-  el.appendChild(root);
 
   const ref = (name) => root.querySelector(`[data-ref="${name}"]`);
+  const viewTabs = Array.from(root.querySelectorAll('.f4-view-tab'));
+  const panes = Array.from(root.querySelectorAll('.f4-tab-pane'));
   const horizonBtns = Array.from(root.querySelectorAll('[data-horizon]'));
   const overlayBtn = ref('overlayBtn');
   const aiBtn = ref('aiBtn');
@@ -262,7 +354,17 @@ export async function mount(el, ctx) {
   const askForm = ref('askForm');
   const askInput = ref('askInput');
   const askSubmit = ref('askSubmit');
+  const methodologyPane = ref('methodologyPane');
 
+  function setTab(nextTab) {
+    activeTab = nextTab;
+    for (const t of viewTabs) t.setAttribute('aria-selected', String(t.dataset.view === activeTab));
+    for (const p of panes) p.hidden = p.dataset.pane !== activeTab;
+  }
+
+  for (const t of viewTabs) {
+    t.addEventListener('click', () => setTab(t.dataset.view));
+  }
   for (const btn of horizonBtns) {
     btn.addEventListener('click', () => store.set({ horizonYear: Number(btn.dataset.horizon) }));
   }
@@ -276,8 +378,75 @@ export async function mount(el, ctx) {
   let debounceTimer = null;
   const chatHistory = [];
 
-  function renderBrief(brief, sourceLabel) {
-    ref('aiSource').textContent = sourceLabel;
+  function renderMethodology(f) {
+    if (!methodologyPane || !f) return;
+    const sc = scope;
+    const yrSpan = sc?.meta?.years ? `${sc.meta.years[0]}–${sc.meta.years[1]}` : '2002–2026';
+    const forestCount = sc?.summary?.allForests?.length || 0;
+    const senSign = f.senSlopePerYr >= 0 ? '+' : '−';
+
+    methodologyPane.innerHTML = `
+      <div class="f4-meth-grid">
+        <div class="f4-meth-card">
+          <div class="f4-meth-head">
+            <h4 class="f4-meth-title">1. Source Archives Used</h4>
+            <span class="f4-meth-badge">Drive Telemetry</span>
+          </div>
+          <p class="f4-meth-body">All charts, maps, and risk models in <strong>${escHtml(f.countryName)}</strong> draw directly from synchronized national wildfire and emissions archives (${yrSpan}):</p>
+          <ul class="f4-meth-list">
+            <li><strong>NASA FIRMS MODIS (1 km):</strong> Full 2002–2026 active-fire detections, FRP (MW), day/night overpass, and Terra/Aqua splits.</li>
+            <li><strong>NASA FIRMS VIIRS (375 m):</strong> High-sensitivity 2012–2026 fire detections &amp; sensor outage-day logs across <strong>${forestCount || '40+'}</strong> catalogued forests.</li>
+            <li><strong>Copernicus CAMS GFAS:</strong> 2003–2026 atmospheric smoke species (CO₂, PM₂.₅, CH₄, CO, OC, BC, NOx, SO₂) by year, region, and forest.</li>
+          </ul>
+        </div>
+
+        <div class="f4-meth-card">
+          <div class="f4-meth-head">
+            <h4 class="f4-meth-title">2. Spatial Grid Indexing</h4>
+            <span class="f4-meth-badge">0.2° / 0.5° Grids</span>
+          </div>
+          <p class="f4-meth-body">Millions of raw satellite point rows are pre-indexed at build time into compact spatial GeoJSON cells so the browser responds smoothly:</p>
+          <ul class="f4-meth-list">
+            <li><strong>Wildfire Density Grids:</strong> Point detections are binned onto <strong>0.2°</strong> spatial cells storing total count, cumulative FRP (MW), peak FRP, and top forest/region labels.</li>
+            <li><strong>Smoke Plume Grids:</strong> GFAS emissions points are aggregated into <strong>0.5°</strong> grids for PM₂.₅ and CO₂ plume mapping.</li>
+            <li><strong>Lossless National Series:</strong> Full annual &amp; monthly totals, ranks, medians, and multi-part sensor merges are preserved in <code>scope-index.json</code>.</li>
+          </ul>
+        </div>
+
+        <div class="f4-meth-card">
+          <div class="f4-meth-head">
+            <h4 class="f4-meth-title">3. 2027–2035 Forecast Model</h4>
+            <span class="f4-meth-badge">Theil-Sen + Stress</span>
+          </div>
+          <p class="f4-meth-body">Projections combine non-parametric historical momentum (excluding partial 2026 YTD) with your selected warming &amp; vapor-deficit stress:</p>
+          <div class="f4-meth-formula">Sen slope = ${senSign}${fmtCompact(Math.abs(f.senSlopePerYr))} MW/yr · Anchor FRP = 0.55×Median + 0.45×Recent(2016–25)<br>Multiplier = 1 + max(0.015, relSlope + 0.011)×Δt + stress%×(0.95 + 0.055×Δt)</div>
+          <ul class="f4-meth-list">
+            <li><strong>Carbon Coupling:</strong> Projected CO₂ scales from historical median via <code>0.94 + 1.12 × (Multiplier − 1)</code>.</li>
+            <li><strong>Priority Corridors:</strong> Weighted across 2016–2025 CAMS &amp; FIRMS emission leaders using recency decay.</li>
+          </ul>
+        </div>
+
+        <div class="f4-meth-card">
+          <div class="f4-meth-head">
+            <h4 class="f4-meth-title">4. Local Fire Risk Percentage</h4>
+            <span class="f4-meth-badge">100 km Haversine</span>
+          </div>
+          <p class="f4-meth-body">When you pick a city or drop a pin on the map, the estimator scans all <strong>25 annual spatial grids (2002–2026)</strong> inside a 100 km radius:</p>
+          <div class="f4-meth-formula">Base% = 48×(ActiveYrs/25) + 30×log₁₀(1+AvgDet)/2.55 + 12×log₁₀(1+PeakMW)/3.45<br>Combined% = clamp(Base% × (1 + ScenarioLift) + 0.10×Stress%, 2%, 95%)</div>
+          <ul class="f4-meth-list">
+            <li><strong>Zero Nearby Detections:</strong> Uses exponential distance decay from the nearest recorded fire grid cell instead of dropping blindly to zero.</li>
+            <li><strong>Calm Guidance:</strong> Risk tiers map to everyday preparedness (AQI checks, burn-ban awareness, clearing dry yard debris).</li>
+          </ul>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderBrief(brief, sourceLabel, isLoading = false) {
+    const srcEl = ref('aiSource');
+    srcEl.innerHTML = isLoading
+      ? `<span class="ember-spinner ember-spinner--sm" aria-hidden="true"></span><span>${escHtml(sourceLabel)}</span>`
+      : escHtml(sourceLabel);
     ref('aiHeadline').textContent = brief.headline;
     ref('aiBody').textContent = brief.riskOutlook;
     const driversEl = ref('aiDrivers');
@@ -307,7 +476,7 @@ export async function mount(el, ctx) {
       const metaRow = document.createElement('div');
       metaRow.className = 'f4-msg-meta';
       const noteSpan = document.createElement('span');
-      noteSpan.textContent = item.takeaway || (item.source === 'gemini-4-hydrogen' ? 'Gemini 4 AI' : 'Grounded Trend Model');
+      noteSpan.textContent = item.takeaway || (item.source === 'gemini-4-hydrogen' ? 'Gemini AI' : 'Grounded Trend Model');
       metaRow.appendChild(noteSpan);
       if (item.suggestedScenario && (item.suggestedScenario.horizonYear || item.suggestedScenario.warmingPct !== undefined || item.suggestedScenario.showPredictedOverlay || item.suggestedScenario.focusYear)) {
         const sc = item.suggestedScenario;
@@ -359,13 +528,17 @@ export async function mount(el, ctx) {
 
   async function requestAiBrief(forecast, forceLive = false) {
     const my = ++aiToken;
-    ref('aiSource').textContent = forceLive ? 'Contacting Gemini AI…' : 'Updating brief…';
+    ref('aiSource').innerHTML = `<span class="ember-spinner ember-spinner--sm" aria-hidden="true"></span><span>${forceLive ? 'Contacting AI…' : 'Updating brief…'}</span>`;
     aiBtn.disabled = true;
+    aiBtn.innerHTML = '<span class="ember-spinner ember-spinner--sm" aria-hidden="true"></span><span>Refreshing…</span>';
     const scCtx = summarizeScopeContext(scope, store.get().year);
+    const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timer = ctrl ? setTimeout(() => ctrl.abort(), 12000) : null;
     try {
       const res = await fetch('/api/forecast', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: ctrl ? ctrl.signal : undefined,
         body: JSON.stringify({
           scopePath: forecast.scopePath,
           countryName: forecast.countryName,
@@ -383,13 +556,17 @@ export async function mount(el, ctx) {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       if (my !== aiToken) return;
-      const srcLabel = json.fallback ? 'Statistical trend brief' : 'Gemini 4 AI synthesis';
-      if (json.brief) renderBrief(json.brief, srcLabel);
+      const srcLabel = json.fallback ? 'Statistical trend brief' : 'Gemini AI synthesis';
+      if (json.brief) renderBrief(json.brief, srcLabel, false);
     } catch {
       if (my !== aiToken) return;
-      renderBrief(buildDeterministicBrief(forecast), 'Statistical trend brief');
+      renderBrief(buildDeterministicBrief(forecast), 'Statistical trend brief', false);
     } finally {
-      if (my === aiToken) aiBtn.disabled = false;
+      if (timer) clearTimeout(timer);
+      if (my === aiToken) {
+        aiBtn.disabled = false;
+        aiBtn.textContent = 'Refresh AI Brief';
+      }
     }
   }
 
@@ -398,7 +575,7 @@ export async function mount(el, ctx) {
     if (!q || !scope || !lastForecast) return;
     askInput.value = '';
     askSubmit.disabled = true;
-    askSubmit.textContent = 'Thinking…';
+    askSubmit.innerHTML = '<span class="ember-spinner ember-spinner--sm ember-spinner--light" aria-hidden="true"></span><span>Thinking…</span>';
     const state = store.get();
     const fullContext = {
       ...summarizeScopeContext(scope, state.year),
@@ -410,10 +587,13 @@ export async function mount(el, ctx) {
       topZones: lastForecast.topZones,
     };
 
+    const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timer = ctrl ? setTimeout(() => ctrl.abort(), 14000) : null;
     try {
       const res = await fetch('/api/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: ctrl ? ctrl.signal : undefined,
         body: JSON.stringify({
           question: q,
           history: chatHistory.slice(-4).map((x) => ({ q: x.q, a: x.a })),
@@ -434,6 +614,7 @@ export async function mount(el, ctx) {
       chatHistory.push({ q, a: fb.answer, takeaway: fb.takeaway, source: 'statistical-model', suggestedScenario: fb.suggestedScenario });
       renderChatLog();
     } finally {
+      if (timer) clearTimeout(timer);
       askSubmit.disabled = false;
       askSubmit.textContent = 'Ask AI';
     }
@@ -473,10 +654,11 @@ export async function mount(el, ctx) {
       </div>`;
     }).join('');
 
-    ref('cap').textContent = `Fig. 4 — Deterministic Theil-Sen drift combined with +${wPct}% vapor-pressure stress through ${hYear}; toggle "Show Predicted Zones" or ask the AI analyst above.`;
+    ref('cap').textContent = `Deterministic Theil-Sen drift combined with +${wPct}% vapor-pressure stress through ${hYear}; see "Methodology & Data Used" above for full equations and archive sources.`;
     renderQuickPrompts(state, f);
+    renderMethodology(f);
 
-    renderBrief(buildDeterministicBrief(f), 'Statistical trend brief');
+    renderBrief(buildDeterministicBrief(f), 'Statistical trend brief', fetchAi);
     if (fetchAi) {
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => requestAiBrief(f, false), 220);
@@ -491,12 +673,17 @@ export async function mount(el, ctx) {
 
   async function build(state) {
     const my = ++scopeToken;
+    if (!scope) spinner(el, 'Loading forecast & AI analyst…');
     const sc = await data.getScope(state);
     if (my !== scopeToken) return;
     scope = sc;
     if (!scope || !scope.meta) {
       theme.placeholder(el);
       return;
+    }
+    if (!root.parentNode) {
+      el.innerHTML = '';
+      el.appendChild(root);
     }
     renderForecast(state, true);
   }

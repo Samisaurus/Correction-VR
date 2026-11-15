@@ -27,6 +27,30 @@ const CSS = `
   background: var(--c-panel); font-family: var(--f-mono); font-size: 10.5px; font-weight: 600; color: var(--c-ink);
 }
 .map-notice-btn:hover { border-color: var(--c-ink); background: var(--c-paper); }
+.map-loader {
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 5;
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 12px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(6px);
+  border: 1px solid var(--c-edge); box-shadow: 0 4px 12px rgba(15, 23, 42, 0.1);
+  font-family: var(--f-mono); font-size: 11px; font-weight: 600; color: var(--c-ink);
+  pointer-events: none;
+}
+.map-loader[hidden] { display: none; }
+.map-pin-banner {
+  position: absolute; bottom: 14px; left: 14px; z-index: 5;
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 7px 12px; border-radius: 6px;
+  background: rgba(26, 29, 33, 0.92); color: #FFFFFF;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.22);
+  font-size: 12px; font-weight: 500;
+}
+.map-pin-banner[hidden] { display: none; }
+.map-pin-cancel {
+  border: 1px solid rgba(255, 255, 255, 0.35); border-radius: 4px;
+  background: transparent; color: #FFFFFF; font-size: 11px; font-weight: 600; padding: 2px 8px;
+}
+.map-pin-cancel:hover { background: rgba(255, 255, 255, 0.14); border-color: #FFFFFF; }
 #map .maplibregl-popup-content { font-family: var(--f-mono); font-size: 12px; color: var(--c-ink); padding: 7px 10px; border-radius: 6px; border: 1px solid var(--c-edge); box-shadow: 0 4px 12px rgba(15, 23, 42, 0.1); }
 #map .maplibregl-ctrl-group { border-radius: 6px; box-shadow: none; border: 1px solid var(--c-edge); }
 #map .maplibregl-ctrl-attrib { font-size: 10px; }
@@ -108,6 +132,65 @@ function addCountryLayers(map) {
   });
 }
 
+function buildCirclePolygon(lon, lat, radiusKm = 100, steps = 48) {
+  const R = 6371;
+  const latRad = (lat * Math.PI) / 180;
+  const lonRad = (lon * Math.PI) / 180;
+  const angDist = radiusKm / R;
+  const ring = [];
+  for (let i = 0; i <= steps; i += 1) {
+    const brng = (i / steps) * 2 * Math.PI;
+    const pLat = Math.asin(
+      Math.sin(latRad) * Math.cos(angDist) + Math.cos(latRad) * Math.sin(angDist) * Math.cos(brng),
+    );
+    const pLon = lonRad + Math.atan2(
+      Math.sin(brng) * Math.sin(angDist) * Math.cos(latRad),
+      Math.cos(angDist) - Math.sin(latRad) * Math.sin(pLat),
+    );
+    ring.push([(pLon * 180) / Math.PI, (pLat * 180) / Math.PI]);
+  }
+  return ring;
+}
+
+function addLocalPinLayers(map) {
+  map.addSource('local-pin-radius', { type: 'geojson', data: EMPTY });
+  map.addSource('local-pin-point', { type: 'geojson', data: EMPTY });
+  map.addLayer({
+    id: 'local-pin-fill',
+    type: 'fill',
+    source: 'local-pin-radius',
+    paint: { 'fill-color': '#2B5FC7', 'fill-opacity': 0.1 },
+  });
+  map.addLayer({
+    id: 'local-pin-ring',
+    type: 'line',
+    source: 'local-pin-radius',
+    paint: { 'line-color': '#2B5FC7', 'line-width': 1.6, 'line-dasharray': [3, 2], 'line-opacity': 0.85 },
+  });
+  map.addLayer({
+    id: 'local-pin-halo',
+    type: 'circle',
+    source: 'local-pin-point',
+    paint: {
+      'circle-color': 'rgba(43, 95, 199, 0.22)',
+      'circle-radius': 12,
+      'circle-stroke-color': '#2B5FC7',
+      'circle-stroke-width': 1.5,
+    },
+  });
+  map.addLayer({
+    id: 'local-pin-core',
+    type: 'circle',
+    source: 'local-pin-point',
+    paint: {
+      'circle-color': '#2B5FC7',
+      'circle-radius': 5.5,
+      'circle-stroke-color': '#FFFFFF',
+      'circle-stroke-width': 2,
+    },
+  });
+}
+
 function pickReferenceFireYear(scope, fallbackYear) {
   const byYear = scope?.summary?.byYear;
   if (!byYear || !byYear.size) return fallbackYear;
@@ -145,6 +228,18 @@ export async function mount(el, ctx) {
     noticeEl.hidden = true;
     el.appendChild(noticeEl);
   }
+  const loaderEl = document.createElement('div');
+  loaderEl.className = 'map-loader';
+  loaderEl.innerHTML = '<span class="ember-spinner ember-spinner--sm" aria-hidden="true"></span><span>Loading satellite layers…</span>';
+  loaderEl.hidden = true;
+  el.appendChild(loaderEl);
+
+  const pinBanner = document.createElement('div');
+  pinBanner.className = 'map-pin-banner';
+  pinBanner.hidden = true;
+  pinBanner.innerHTML = '<span>Pin Mode: Click anywhere on the map to measure 100 km fire likelihood</span><button type="button" class="map-pin-cancel">Cancel</button>';
+  pinBanner.querySelector('.map-pin-cancel').addEventListener('click', () => store.set({ pinMode: false }));
+  el.appendChild(pinBanner);
 
   const regions = await data.getRegions();
   const first = regions && regions.countries ? regions.countries[0] : null;
@@ -319,12 +414,43 @@ export async function mount(el, ctx) {
     }
   }
 
+  function updatePinOverlay(state) {
+    pinBanner.hidden = !state.pinMode;
+    map.getCanvas().style.cursor = state.pinMode ? 'crosshair' : '';
+    const pin = state.localPin;
+    const radSrc = map.getSource('local-pin-radius');
+    const ptSrc = map.getSource('local-pin-point');
+    if (!radSrc || !ptSrc) return;
+    if (!pin || !Number.isFinite(pin.lat) || !Number.isFinite(pin.lon)) {
+      radSrc.setData(EMPTY);
+      ptSrc.setData(EMPTY);
+      return;
+    }
+    radSrc.setData({
+      type: 'FeatureCollection',
+      features: [{
+        type: 'Feature',
+        geometry: { type: 'Polygon', coordinates: [buildCirclePolygon(pin.lon, pin.lat, 100)] },
+        properties: { label: pin.label || 'Local Pin' },
+      }],
+    });
+    ptSrc.setData({
+      type: 'FeatureCollection',
+      features: [{
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [pin.lon, pin.lat] },
+        properties: { label: pin.label || 'Local Pin' },
+      }],
+    });
+  }
+
   async function refresh(state, viewChanged) {
     if (refreshing) {
       queued = { state, viewChanged: (queued && queued.viewChanged) || viewChanged };
       return;
     }
     refreshing = true;
+    loaderEl.hidden = false;
     try {
       await runRefresh(state, viewChanged);
       while (queued) {
@@ -334,6 +460,7 @@ export async function mount(el, ctx) {
       }
     } finally {
       refreshing = false;
+      loaderEl.hidden = true;
     }
   }
 
@@ -348,27 +475,65 @@ export async function mount(el, ctx) {
     registerLayer(addAirLayer);
     registerLayer(addFiresLayer);
     registerLayer(addPredictedLayer);
+    addLocalPinLayers(map);
+
+    map.on('click', (e) => {
+      const cur = store.get();
+      if (!cur.pinMode) return;
+      const hits = map.queryRenderedFeatures(e.point, { layers: ['map-countries-fill'] });
+      const hitCountry = hits && hits[0] && hits[0].properties ? hits[0].properties.id : null;
+      const targetCountry = hitCountry || cur.countryId;
+      const lat = Number(e.lngLat.lat.toFixed(4));
+      const lon = Number(e.lngLat.lng.toFixed(4));
+      store.set({
+        countryId: targetCountry,
+        pinMode: false,
+        playing: false,
+        localPin: {
+          countryId: targetCountry,
+          lat,
+          lon,
+          label: `Pinned (${Math.abs(lat).toFixed(2)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lon).toFixed(2)}°${lon >= 0 ? 'E' : 'W'})`,
+          isCity: false,
+        },
+      });
+    });
 
     map.on('click', 'map-countries-fill', (e) => {
+      if (store.get().pinMode) return;
       const f = e.features && e.features[0];
       const cid = f && f.properties && f.properties.id;
       if (cid && cid !== store.get().countryId) store.set({ countryId: cid, playing: false });
     });
     map.on('mousemove', 'map-countries-fill', (e) => {
+      if (store.get().pinMode) {
+        map.getCanvas().style.cursor = 'crosshair';
+        return;
+      }
       const f = e.features && e.features[0];
       const cid = f && f.properties && f.properties.id;
       if (cid && cid !== store.get().countryId) map.getCanvas().style.cursor = 'pointer';
     });
-    map.on('mouseleave', 'map-countries-fill', () => { map.getCanvas().style.cursor = ''; });
+    map.on('mouseleave', 'map-countries-fill', () => {
+      map.getCanvas().style.cursor = store.get().pinMode ? 'crosshair' : '';
+    });
+
+    window.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape' && store.get().pinMode) store.set({ pinMode: false });
+    });
 
     await loadAllCountries();
     ready = true;
     el.dataset.mapReady = 'true';
     syncAttribState();
+    updatePinOverlay(store.get());
     refresh(store.get(), 'first');
   });
 
   store.subscribe((state, prev) => {
+    if (ready && (state.localPin !== prev.localPin || state.pinMode !== prev.pinMode)) {
+      updatePinOverlay(state);
+    }
     const viewChanged = state.countryId !== prev.countryId;
     const outlookChanged = state.horizonYear !== prev.horizonYear
       || state.warmingPct !== prev.warmingPct

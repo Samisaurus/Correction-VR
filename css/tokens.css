@@ -10,7 +10,7 @@
   --c-panel: #F6F8FA;
   --c-link: #2B5FC7;
   --c-paper: #FFFFFF;
-  --c-canvas: #F5F7FA;
+  --c-canvas: #F5F1E9;
   --c-contour: #8C7B6B;
   --c-country: #202122;
 
@@ -21,8 +21,8 @@
   --c-win-border-hover: #68C0B4;
   --r-box: 6px;
   --bw: 2.5px;
-  --shadow-card: 0 2px 10px rgba(15, 23, 42, 0.045), 0 1px 2px rgba(15, 23, 42, 0.03);
-  --shadow-card-hover: 0 6px 18px rgba(15, 23, 42, 0.075), 0 2px 5px rgba(15, 23, 42, 0.045);
+  --shadow-card: 0 2px 10px rgba(42, 33, 24, 0.05), 0 1px 2px rgba(42, 33, 24, 0.03);
+  --shadow-card-hover: 0 6px 18px rgba(42, 33, 24, 0.08), 0 2px 5px rgba(42, 33, 24, 0.045);
 
   /* Tactile, buttery easing */
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
@@ -64,10 +64,13 @@ body {
   line-height: 1.55;
   color: var(--c-ink);
   background-color: var(--c-canvas);
-  background-image: url("./bg-curves.svg");
-  background-size: 760px 760px;
+  background-image:
+    radial-gradient(circle at 14% 8%, rgba(230, 159, 0, 0.055), transparent 46%),
+    radial-gradient(circle at 86% 84%, rgba(213, 94, 0, 0.045), transparent 50%),
+    url("./bg-curves.svg");
+  background-size: auto, auto, 760px 760px;
   background-position: center top;
-  background-repeat: repeat;
+  background-repeat: no-repeat, no-repeat, repeat;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -157,7 +160,7 @@ th, td {
 th { font-weight: 600; }
 td.num, th.num { text-align: right; }
 
-/* muted italic message written by theme.placeholder() and the static slot placeholders */
+/* muted message and animated buffer wheel written by theme.placeholder() / theme.spinner() */
 .placeholder {
   margin: 0;
   padding: 14px 16px;
@@ -166,12 +169,52 @@ td.num, th.num { text-align: right; }
   font-size: 14px;
 }
 
+.ember-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 76px;
+  padding: 14px 16px;
+  color: var(--c-muted);
+  font-family: var(--f-sans);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.ember-spinner {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2.25px solid rgba(84, 89, 93, 0.2);
+  border-top-color: var(--c-fire);
+  border-right-color: var(--c-year);
+  animation: emberSpin 720ms linear infinite;
+}
+
+.ember-spinner--sm {
+  width: 13px;
+  height: 13px;
+  border-width: 2px;
+}
+
+.ember-spinner--light {
+  border-color: rgba(255, 255, 255, 0.28);
+  border-top-color: #FFFFFF;
+  border-right-color: #FFFFFF;
+}
+
 .visually-hidden {
   position: absolute !important;
   width: 1px; height: 1px;
   overflow: hidden;
   clip: rect(0 0 0 0);
   white-space: nowrap;
+}
+
+@keyframes emberSpin {
+  to { transform: rotate(360deg); }
 }
 
 @keyframes emberFadeIn {

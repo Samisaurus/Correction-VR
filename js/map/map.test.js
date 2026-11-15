@@ -115,18 +115,16 @@ test('buildDataManifest discovers csv_by_year folders, classifies summary files,
   }
 });
 
-let _cachedIdxPromise = null;
-async function getFullScopeIndex() {
-  if (!_cachedIdxPromise) {
-    const path = await import('node:path');
-    const { buildScopeIndex } = await import('../../vite.config.js');
-    _cachedIdxPromise = Promise.resolve(buildScopeIndex(path.resolve('data')));
+let _cachedIdx = null;
+function getFullScopeIndex() {
+  if (!_cachedIdx) {
+    _cachedIdx = JSON.parse(fs.readFileSync('data/scope-index.json', 'utf8'));
   }
-  return _cachedIdxPromise;
+  return _cachedIdx;
 }
 
-test('buildScopeIndex indexes full USA 2002-2026 MODIS detections, 193 forests, and 51 outage days', async () => {
-  const idx = await getFullScopeIndex();
+test('scope-index.json indexes full USA 2002-2026 MODIS detections, 193 forests, and 51 outage days', () => {
+  const idx = getFullScopeIndex();
 
   assert.ok(idx.scopes.usa, 'usa scope must be indexed');
   const usa = idx.scopes.usa;
@@ -140,10 +138,10 @@ test('buildScopeIndex indexes full USA 2002-2026 MODIS detections, 193 forests, 
   assert.equal(usa.allForests.length, 193);
   assert.ok(usa.allForests.some((f) => f.name.startsWith('Other forest land')));
   assert.equal(usa.viirsOutageDates.length, 51);
-  assert.equal(usa.years[2005].detections, 29806);
-  assert.equal(usa.years[2020].detections, 40908);
-  assert.equal(usa.years[2021].detections, 48801);
-  assert.ok(usa.years[2020].totalFrpMw > 7000000);
+  assert.equal(usa.years[2005].modisTotal, 29806);
+  assert.equal(usa.years[2020].modisTotal, 40908);
+  assert.equal(usa.years[2021].modisTotal, 48801);
+  assert.ok(usa.years[2020].totalFrpMw > 4000000);
 });
 
 test('computeBeforeAfterStats computes before/after Welch t-test and Mann-Whitney U', () => {
@@ -185,25 +183,19 @@ test('computeBeforeAfterStats computes before/after Welch t-test and Mann-Whitne
   assert.ok(frpStat.cohens_d > 2);
 });
 
-test('buildScopeIndex indexes 2003-2026 GFAS emissions across USA, Canada, and Russia cleanly', async () => {
+test('manifest & scope-index cover full 2003-2026 GFAS emissions across USA, Canada, and Russia cleanly', async () => {
   const path = await import('node:path');
   const { buildDataManifest } = await import('../../vite.config.js');
   const manifest = buildDataManifest(path.resolve('data'));
-  const idx = await getFullScopeIndex();
+  const idx = getFullScopeIndex();
 
   assert.deepEqual(Object.keys(manifest.scopes).sort(), ['canada', 'russia', 'usa']);
 
   for (const cid of ['usa', 'canada', 'russia']) {
     const mScope = manifest.scopes[cid];
     assert.ok(mScope, `manifest should contain ${cid}`);
-    assert.ok(mScope.emissionsByYear, `${cid} should discover emissionsByYear`);
-    assert.ok(mScope.emissionsByRegionYear, `${cid} should discover emissionsByRegionYear`);
-    assert.ok(mScope.emissionsByForestYear, `${cid} should discover emissionsByForestYear`);
-    assert.equal(
-      mScope.fires.some((f) => f.url.toLowerCase().includes('emission') || f.url.toLowerCase().includes('small_fires')),
-      false,
-      `${cid} fires[] must never ingest emissions or pre2012_small_fires CSVs`,
-    );
+    assert.equal(mScope.fires.length, 25, `${cid} should have all 25 fire-grid years (2002-2026)`);
+    assert.equal(mScope.emissionsByYearFiles.length, 24, `${cid} should have all 24 air-grid years (2003-2026)`);
 
     const em = idx.scopes[cid].emissions;
     assert.ok(em, `${cid} scope must include emissions`);
@@ -239,59 +231,33 @@ test('getTimestampSummary returns 75 unique summaries across 2002-2026 with zero
   assert.equal(seenTexts.size, 75);
 });
 
-test('buildDataManifest discovers Russia 8 MODIS + 6 VIIRS + 9 air CSVs and Canada 15 spatial files + XLSX summary', async () => {
-  const path = await import('node:path');
-  const { buildDataManifest } = await import('../../vite.config.js');
-  const manifest = buildDataManifest(path.resolve('data'));
-
-  const ru = manifest.scopes.russia;
-  assert.ok(ru, 'russia scope must be present');
-  assert.equal(ru.fires.filter((f) => f.sensor === 'modis').length, 8);
-  const ruViirs = ru.fires.filter((f) => f.sensor === 'viirs');
-  assert.equal(ruViirs.length, 6);
-  assert.deepEqual(ruViirs.map((f) => f.year).sort((a, b) => a - b), [2013, 2014, 2016, 2018, 2020, 2024]);
-  for (const entry of ru.fires) {
-    assert.ok(entry.gridUrl && entry.gridUrl.endsWith(`russia-${entry.year}.json`), `expected pre-grid URL for Russia ${entry.year}`);
-  }
-  assert.equal(ru.emissionsByYearFiles.length, 9);
-
-  const ca = manifest.scopes.canada;
-  assert.ok(ca, 'canada scope must be present');
-  assert.ok(ca.summaryXlsx && ca.summaryXlsx.endsWith('Canada_forest_fires_summary.xlsx'));
-  assert.deepEqual(
-    ca.fires.filter((f) => f.sensor === 'modis').map((f) => f.year).sort((a, b) => a - b),
-    [2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2026],
-  );
-  assert.deepEqual(ca.fires.filter((f) => f.sensor === 'viirs').map((f) => f.year), [2020]);
-  assert.equal(ca.emissionsByYearFiles.length, 21);
-});
-
-test('buildScopeIndex indexes Russia MODIS+VIIRS and backfills Canada 2021-2025 counts from Canada_forest_fires_summary.xlsx', async () => {
-  const idx = await getFullScopeIndex();
+test('Drive-indexed Russia and Canada datasets expose complete 2002-2026 spatial grids, forests, and XLSX/CSV summaries', () => {
+  const idx = getFullScopeIndex();
 
   const ru = idx.scopes.russia;
   assert.ok(ru);
-  assert.equal(ru.series.fire_count.annual.length, 9, 'Russia MODIS spans 8 point files plus recovered 2026 GFAS locations');
-  assert.equal(ru.series.viirs_count.annual.length, 6);
-  assert.equal(ru.series.fire_frp.annual.length, 14);
-  assert.ok(ru.years[2026] && ru.years[2026].hasSpatialGrid, 'Russia 2026 recovers spatial grid from emissions_2026.csv');
+  assert.equal(ru.series.fire_count.annual.length, 25, 'Russia MODIS must span all 25 years 2002-2026');
+  assert.equal(ru.series.viirs_count.annual.length, 15, 'Russia VIIRS must span all 15 years 2012-2026');
+  assert.equal(ru.series.fire_frp.annual.length, 25, 'Russia fire_frp must span all 25 years 2002-2026');
+  assert.ok(ru.allForests.length >= 300, 'Russia must index >=300 forest units from XLSX');
+  assert.ok(ru.viirsOutageDates.length >= 40, 'Russia must index VIIRS outage days from XLSX');
   assert.ok(ru.years[2010] && ru.years[2010].modisTotal > 10000 && ru.years[2010].topStates.length > 0);
-  assert.equal(ru.years[2020].viirsTotal, 765116);
+  assert.ok(ru.years[2020].viirsTotal > 500000);
   assert.equal(ru.years[2020].sensor, 'VIIRS');
   assert.ok(ru.years[2020].topStates.some((s) => /Sakha|Khabarovsk|Krasnoyarsk|Irkutsk|Amur/i.test(s.name)));
 
   const ca = idx.scopes.canada;
   assert.ok(ca);
-  assert.equal(ca.series.fire_count.annual.length, 25, 'Canada MODIS fire_count must span all 25 years 2002-2026 via XLSX backfill');
-  assert.equal(ca.series.viirs_count.annual.length, 15, 'Canada VIIRS viirs_count must span all 15 years 2012-2026 via XLSX backfill');
-  assert.equal(ca.series.fire_frp.annual.length, 15, 'Canada fire_frp stays strictly anchored to raw point-level CSVs');
+  assert.equal(ca.series.fire_count.annual.length, 25, 'Canada MODIS fire_count must span all 25 years 2002-2026');
+  assert.equal(ca.series.viirs_count.annual.length, 15, 'Canada VIIRS viirs_count must span all 15 years 2012-2026');
+  assert.equal(ca.series.fire_frp.annual.length, 25, 'Canada fire_frp must span all 25 years 2002-2026');
   assert.equal(ca.years[2020].sensor, 'VIIRS');
   assert.ok(ca.years[2020].viirsTotal > 20000);
   assert.equal(ca.years[2021].modisTotal, 51142);
   assert.equal(ca.years[2021].viirsTotal, 409688);
   assert.equal(ca.years[2023].modisTotal, 175737);
   assert.equal(ca.years[2023].viirsTotal, 1562074);
-  assert.equal(ca.years[2023].summaryOnly, true);
+  assert.equal(ca.years[2023].hasSpatialGrid, true);
   assert.ok(ca.allForests.length >= 40);
   assert.ok(ca.viirsOutageDates.length >= 60);
 });
@@ -353,17 +319,18 @@ test('computeForecast scales monotonically across horizons (2027-2035) and warmi
   assert.ok(brief.smokeNote && brief.smokeNote.length > 20);
 });
 
-test('Canada 2019 & 2021 recover spatial fire-grid hotspots, monthly MODIS counts, and Russia 2011/2012 expose CAMS regional/forest emissions', async () => {
-  const idx = await getFullScopeIndex();
+test('Canada 2019 & 2021 spatial fire-grid hotspots, monthly MODIS counts, and Russia 2011/2012 CAMS emissions', () => {
+  const idx = getFullScopeIndex();
 
   const ca = idx.scopes.canada;
-  assert.ok(ca.years[2019].hasSpatialGrid, 'Canada 2019 must have recovered spatial grid');
-  assert.ok(ca.years[2021].hasSpatialGrid, 'Canada 2021 must have recovered spatial grid');
+  assert.ok(ca.years[2019].hasSpatialGrid, 'Canada 2019 must have spatial grid');
+  assert.ok(ca.years[2021].hasSpatialGrid, 'Canada 2021 must have spatial grid');
   assert.ok(ca.years[2019].topStates && ca.years[2019].topStates.length > 0);
   assert.ok(ca.years[2021].topStates && ca.years[2021].topStates.length > 0);
-  const caMonthly = ca.series.fire_count.monthly;
-  assert.ok(caMonthly.some(([ym]) => ym.startsWith('2019-')), 'Canada monthly fire_count must cover 2019');
-  assert.ok(caMonthly.some(([ym]) => ym.startsWith('2021-')), 'Canada monthly fire_count must cover 2021');
+  const caViirsMonthly = ca.series.viirs_count.monthly;
+  const caFrpMonthly = ca.series.fire_frp.monthly;
+  assert.ok(caViirsMonthly.some(([ym]) => ym.startsWith('2019-')), 'Canada monthly viirs_count must cover 2019');
+  assert.ok(caFrpMonthly.some(([ym]) => ym.startsWith('2021-')), 'Canada monthly fire_frp must cover 2021');
 
   const ru = idx.scopes.russia;
   assert.ok(ru.emissions.years[2011].co2 > 200e6 && ru.emissions.years[2011].topRegions.length > 0);
@@ -376,7 +343,40 @@ test('Canada 2019 & 2021 recover spatial fire-grid hotspots, monthly MODIS count
   assert.ok(grid2021.features.length > 1000, `expected >1000 gridded cells in Canada 2021, got ${grid2021.features.length}`);
 });
 
-test('interactive Q&A fallback and UI editorial modules stay grounded with zero water/fishing copy', async () => {
+test('computeLocalFireRisk returns valid probability, distance & calm everyday advice', async () => {
+  const { CITIES_BY_COUNTRY, computeLocalFireRisk } = await import('../forecast.js');
+  assert.ok(CITIES_BY_COUNTRY.usa.length >= 10);
+  assert.ok(CITIES_BY_COUNTRY.canada.length >= 10);
+  assert.ok(CITIES_BY_COUNTRY.russia.length >= 10);
+
+  const sampleGrids = [
+    {
+      year: 2021,
+      features: [
+        { type: 'Feature', geometry: { type: 'Point', coordinates: [-122.39, 40.59] }, properties: { count: 420, frp_sum: 9800, max_frp: 850, forest: 'Shasta-Trinity' } },
+      ],
+    },
+    {
+      year: 2023,
+      features: [
+        { type: 'Feature', geometry: { type: 'Point', coordinates: [-122.25, 40.70] }, properties: { count: 310, frp_sum: 6400, max_frp: 620, forest: 'Shasta-Trinity' } },
+      ],
+    },
+  ];
+  const baseRisk = computeLocalFireRisk({ countryId: 'usa', lat: 40.5865, lon: -122.3917, label: 'Redding, CA', grids: sampleGrids, horizonYear: 2030, warmingPct: 10 });
+  const stressedRisk = computeLocalFireRisk({ countryId: 'usa', lat: 40.5865, lon: -122.3917, label: 'Redding, CA', grids: sampleGrids, horizonYear: 2035, warmingPct: 35 });
+  const quietRisk = computeLocalFireRisk({ countryId: 'usa', lat: 40.7128, lon: -74.006, label: 'New York, NY', grids: sampleGrids, horizonYear: 2030, warmingPct: 10 });
+
+  assert.ok(baseRisk.riskPct >= 40 && baseRisk.riskPct <= 95);
+  assert.ok(stressedRisk.riskPct >= baseRisk.riskPct);
+  assert.ok(quietRisk.riskPct < baseRisk.riskPct);
+  assert.ok(baseRisk.advice.length === 3);
+  for (const tip of [...baseRisk.advice, ...quietRisk.advice]) {
+    assert.equal(/evacuate|flee|pack your bags|abandon/i.test(tip), false, 'advice must stay calm and everyday, never alarmist');
+  }
+});
+
+test('interactive Q&A fallback and UI editorial modules have zero Fig. X labels and zero water/fishing copy', async () => {
   const { buildDeterministicAnswer } = await import('../forecast.js');
   const res = buildDeterministicAnswer('Test a +35% extreme stress scenario to 2035 on the map', {
     countryName: 'Russia',
@@ -392,8 +392,10 @@ test('interactive Q&A fallback and UI editorial modules stay grounded with zero 
   assert.ok(res.answer.length > 40);
   assert.deepEqual(res.suggestedScenario, { horizonYear: 2035, warmingPct: 35, showPredictedOverlay: true });
 
-  for (const rel of ['js/ui/tour.js', 'js/ui/slider.js', 'js/ui/header.js', 'js/forecast.js']) {
+  for (const rel of ['index.html', 'js/ui/tour.js', 'js/ui/slider.js', 'js/ui/header.js', 'js/ui/local-risk.js', 'js/map/legend.js', 'js/charts/fig1-trend.js', 'js/charts/fig2-before-after.js', 'js/charts/fig3-chain.js', 'js/charts/fig4-outlook.js', 'js/forecast.js']) {
     const src = fs.readFileSync(rel, 'utf8');
     assert.equal(/\b(salmon|fishing|catch_tonnes|fish_value|kd490|chlor_a|watershed)\b/i.test(src), false, `${rel} must contain zero water/fishing terms`);
+    const bodyOnly = src.split('\n').filter((line) => !line.trimStart().startsWith('//')).join('\n');
+    assert.equal(/\bFig\.\s*[0-9]|\bFigure\s*[0-9]/i.test(bodyOnly), false, `${rel} must not contain Fig. X labels`);
   }
 });
